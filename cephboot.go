@@ -33,7 +33,7 @@ func (d *radosImage) ReadAt(p []byte, off uint) error {
 	fromChunkIndex := int(math.Floor(float64(fromOffset) / chunkSize))
 	toChunkIndex := int(math.Floor(float64(toOffset) / chunkSize))
 
-	log.Printf("[radosImage] - from = %d, to = %d, fromChunk = %d, toChunk = %d\n", fromOffset, toOffset,
+	log.Printf("[radosImage] - fromOffset = %d, to = %d, fromChunk = %d, toChunk = %d\n", fromOffset, toOffset,
 		fromChunkIndex, toChunkIndex)
 
 	pFrom := 0
@@ -257,7 +257,7 @@ func main() {
 	case "index":
 		indexCommand.Parse(os.Args[2:])
 
-		if len(os.Args) < 3 {
+		if len(os.Args) < 4 {
 			exit(1, "Syntax: cephboot index ID FILE")
 		}
 
@@ -265,10 +265,20 @@ func main() {
 		file := os.Args[3]
 
 		index(id, file)
+	case "parsentfs":
+		indexCommand.Parse(os.Args[2:])
+
+		if len(os.Args) < 2 {
+			exit(1, "Syntax: cephboot parsentfs FILE")
+		}
+
+		file := os.Args[2]
+
+		parseNTFS(file)
 	case "mount":
 		mountCommand.Parse(os.Args[2:])
 
-		if len(os.Args) < 2 {
+		if len(os.Args) < 4 {
 			exit(1, "Syntax: cephboot mount ID")
 		}
 

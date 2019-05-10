@@ -1,5 +1,7 @@
 github.com/ceph/go-ceph v0.0.0-20181217221554-e32f9f0f2e94 h1:m3fyIqe28zGggNHc9hE2R3Zk/CJC3Lg8KFSNfXu8mpk=
 github.com/ceph/go-ceph v0.0.0-20181217221554-e32f9f0f2e94/go.mod h1:DhWkbjUxN0QRc0xQvpI9QhzqQSzYysRuZVcqSfiStds=
+github.com/golang/protobuf v1.3.1 h1:YF8+flBXS5eO826T4nzqPrxfhQThhXl0YzfuUPu4SBg=
+github.com/golang/protobuf v1.3.1/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5yJMmIC1U=
 github.com/samalba/buse-go v0.0.0-20171001000303-9289eeeb8c7f h1:eozzYjlA/fkfxlxy23y5tR5gWYUMU6hfvxGgQCpHkAc=
 github.com/samalba/buse-go v0.0.0-20171001000303-9289eeeb8c7f/go.mod h1:gyMrDJ6lnPFXJIZZJjcDL7kYsqR/hoSlKmk1FeOXBxo=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

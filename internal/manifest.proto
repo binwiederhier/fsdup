@@ -1,0 +1,13 @@
+syntax = "proto3";
+package internal;
+
+message ManifestV1 {
+    message Slice {
+        bytes Checksum = 1;
+        uint64 Offset = 2;
+        uint64 Length = 3;
+    }
+
+    uint64 Size = 1;
+    repeated Slice Slices = 2;
+}
