@@ -25,6 +25,7 @@ const (
 )
 
 type run struct {
+	sparse bool
 	fromOffset   uint64
 	toOffset     uint64
 	firstCluster int64 // signed!
@@ -60,15 +61,18 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 		firstClusterOffset := int64(clusterCountOffset) + int64(clusterCountLength)
 		firstCluster += readIntLE(reader, int64(firstClusterOffset), int64(firstClusterLength)) // relative to previous, can be negative, so signed!
 
+		sparse := firstClusterLength == 0
+
 		fromOffset := int64(firstCluster) * int64(clusterSize)
 		toOffset := fromOffset + int64(clusterCount) * int64(clusterSize)
 
-		fmt.Printf("data run offset = %d, data run header = 0x%x, data run length length = 0x%x, data run offset length = 0x%x, " +
+		fmt.Printf("data run offset = %d, header = 0x%x, sparse = %b, length length = 0x%x, offset length = 0x%x, " +
 			"cluster count = %d, first cluster = %d, from offset = %d, to offset = %d\n",
-			offset, header, clusterCountLength, firstClusterLength, clusterCount, firstCluster,
+			offset, header, sparse, clusterCountLength, firstClusterLength, clusterCount, firstCluster,
 			fromOffset, toOffset)
 
 		runs = append(runs, run{
+			sparse: sparse,
 			firstCluster: firstCluster,
 			clusterCount: clusterCount,
 			fromOffset:   uint64(fromOffset),
@@ -177,46 +181,68 @@ func parseNTFS(filename string) {
 
 	for _, run := range mft.runs {
 		fmt.Printf("\n\nprocessing run: %#v\n\n", run)
+		entries := int(run.clusterCount * sectorsPerCluster)
+		firstSector := int64(run.firstCluster) * int64(sectorsPerCluster)
 
-		for i := 1; i < int(run.clusterCount); i++ { // Skip entry 0 ($MFT itself!)
-			cluster := int64(run.firstCluster) + int64(i)
-			clusterOffset := cluster * int64(clusterSize)
+		for i := 1; i < entries; i++ { // Skip entry 0 ($MFT itself!)
+			sector := firstSector + int64(i)
+			sectorOffset := sector * int64(sectorSize)
+			// TODO we should look at entry.allocSize and jump ahead. This will cut the reads in half!
 
-			fmt.Printf("reading entry at cluster %d / offset %d:\n", cluster, clusterOffset)
+			fmt.Printf("reading entry at sector %d / offset %d:\n", sector, sectorOffset)
 
-			entry, err := readEntry(fs, int64(clusterSize), clusterOffset)
+			entry, err := readEntry(fs, int64(clusterSize), sectorOffset)
 			if err == ErrDataResident || err == ErrNoDataAttr || err == ErrUnexpectedMagic {
-				fmt.Printf("skipping entry: %s\n", err.Error())
+				fmt.Printf("skipping FILE: %s\n\n", err.Error())
 				continue
 			} else if err != nil {
 				panic(err)
 			}
 
-			fmt.Printf("entry %#v\n", entry)
+			fmt.Printf("FILE %#v\n", entry)
 			hash := sha256.New()
-			f, _ := os.OpenFile("/home/pheckel/Code/ceph/client/a" + strconv.Itoa(i), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+			f, _ := os.OpenFile("/home/pheckel/Code/ceph/client/a/" + strconv.Itoa(i), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 
 			remaining := entry.fileSize
 
 			for _, fragment := range entry.runs {
-				bufferSize := int64(math.Min(float64(remaining), float64(fragment.toOffset - fragment.fromOffset)))
-				remaining -= uint64(bufferSize)
+				if fragment.sparse {
+					b := make([]byte, clusterSize)
 
-				b := make([]byte, bufferSize)
-				n, err := fs.ReadAt(b, int64(fragment.fromOffset))
-				if err != nil {
-					panic(err)
-				}
-				if n != len(b) {
-					panic("invalid read")
+					for i := 0; i < int(fragment.clusterCount); i++ {
+						_, err := f.Write(b)
+						if err != nil {
+							panic(err)
+						}
+
+						hash.Write(b)
+						remaining -= clusterSize
+					}
+				} else {
+					bufferSize := int64(math.Min(float64(remaining), float64(fragment.toOffset - fragment.fromOffset)))
+					remaining -= uint64(bufferSize)
+
+					b := make([]byte, bufferSize)
+					n, err := fs.ReadAt(b, int64(fragment.fromOffset))
+					if err != nil {
+						panic(err)
+					}
+					if n != len(b) {
+						panic("invalid read")
+					}
+
+					_, err = f.Write(b)
+					if err != nil {
+						panic(err)
+					}
+
+					hash.Write(b)
 				}
 
-				f.Write(b)
-				hash.Write(b)
 			}
 
 			f.Close()
-			fmt.Printf("hash = %x\n", hash.Sum(nil))
+			fmt.Printf("hash = %x\n\n", hash.Sum(nil))
 		}
 	}
 
