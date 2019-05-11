@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -289,4 +291,9 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
+}
+func read_int32(data []byte) (ret int32) {
+	buf := bytes.NewBuffer(data)
+	binary.Read(buf, binary.LittleEndian, &ret)
+	return
 }

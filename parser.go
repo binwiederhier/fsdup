@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"heckel.io/cephboot/internal"
 	"io"
+	"math"
 	"os"
+	"strconv"
 )
 
 const (
@@ -30,9 +32,8 @@ type run struct {
 }
 
 type entry struct {
-	allocSize int
-	dataRealSize uint64
-	runs []run
+	fileSize uint64
+	runs     []run
 }
 
 var ErrDataResident = errors.New("data is resident")
@@ -42,30 +43,29 @@ var ErrFileTooSmallToIndex = errors.New("file too small to index")
 
 func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 	runs := make([]run, 0)
-	dataRunOffset := offset
 	firstCluster := int64(0)
 
 	for {
-		dataRunHeader := readUintLE(reader, dataRunOffset, 1)
+		header := readUintLE(reader, offset, 1)
 
-		if dataRunHeader == 0 {
+		if header == 0 {
 			break
 		}
 
-		clusterCountLength := dataRunHeader & 0x0F
-		clusterCountOffset := dataRunOffset + 1
+		clusterCountLength := header & 0x0F
+		clusterCountOffset := offset + 1
 		clusterCount := readUintLE(reader, clusterCountOffset, int64(clusterCountLength))
 
-		firstClusterLength := dataRunHeader & 0xF0 >> 4
+		firstClusterLength := header & 0xF0 >> 4
 		firstClusterOffset := int64(clusterCountOffset) + int64(clusterCountLength)
 		firstCluster += readIntLE(reader, int64(firstClusterOffset), int64(firstClusterLength)) // relative to previous, can be negative, so signed!
 
 		fromOffset := int64(firstCluster) * int64(clusterSize)
-		toOffset := fromOffset + (int64(clusterCount) + 1) * int64(clusterSize)
+		toOffset := fromOffset + int64(clusterCount) * int64(clusterSize)
 
 		fmt.Printf("data run offset = %d, data run header = 0x%x, data run length length = 0x%x, data run offset length = 0x%x, " +
 			"cluster count = %d, first cluster = %d, from offset = %d, to offset = %d\n",
-			dataRunOffset, dataRunHeader, clusterCountLength, firstClusterLength, clusterCount, firstCluster,
+			offset, header, clusterCountLength, firstClusterLength, clusterCount, firstCluster,
 			fromOffset, toOffset)
 
 		runs = append(runs, run{
@@ -75,7 +75,7 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 			toOffset:     uint64(toOffset),
 		})
 
-		dataRunOffset = dataRunOffset + int64(firstClusterLength) + int64(clusterCountLength) + 1
+		offset += int64(firstClusterLength) + int64(clusterCountLength) + 1
 	}
 
 	return runs
@@ -88,11 +88,8 @@ func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, err
 	}
 
 	relativeFirstAttrOffset := readUintLE(reader, offset + ENTRY_FIRST_ATTR_OFFSET, ENTRY_FIRST_ATTR_LENTGH)
-	allocatedSize := readUintLE(reader, offset + 28, 4)
 
-	entry := &entry{
-		allocSize: int(allocatedSize),
-	}
+	entry := &entry{}
 
 	firstAttrOffset := offset + int64(relativeFirstAttrOffset)
 	attrOffset := firstAttrOffset
@@ -110,14 +107,14 @@ func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, err
 
 			dataRealSize := readUintLE(reader, attrOffset + 48, 8)
 
-/*			if dataRealSize < 2 * 1024 * 1024 {
+/*			if fileSize < 2 * 1024 * 1024 {
 				return nil, ErrFileTooSmallToIndex
 			}*/
 
 			relativeDataRunsOffset := readUintLE(reader, attrOffset + 32, 2)
 			dataRunFirstOffset := attrOffset + int64(relativeDataRunsOffset)
 
-			entry.dataRealSize = dataRealSize
+			entry.fileSize = dataRealSize
 			entry.runs = readRuns(reader, clusterSize, dataRunFirstOffset)
 		} else if attrType == ATTR_TYPE_END_MARKER || attrLen == 0 {
 			break
@@ -144,58 +141,6 @@ func readAndCompare(reader io.ReaderAt, offset int64, expected []byte) error {
 	}
 
 	return nil
-}
-
-func readIntLE(reader io.ReaderAt, offset int64, length int64) int64 {
-	b := make([]byte, length)
-	n, err := reader.ReadAt(b, offset)
-	if err != nil {
-		panic(err)
-	} else if n != len(b) {
-		panic("cannot read")
-	}
-
-	// FIXME All cases are necessary for datarun offsets and lengths!
-	switch length {
-	case 0:
-		return 0
-	case 1:
-		return int64(int8(b[0]))
-	case 2:
-		return int64(int16(binary.LittleEndian.Uint16(b)))
-	case 4:
-		return int64(int32(binary.LittleEndian.Uint32(b)))
-	case 8:
-		return int64(binary.LittleEndian.Uint64(b))
-	default:
-		panic(fmt.Sprintf("invalid length %d", length))
-	}
-
-}
-func readUintLE(reader io.ReaderAt, offset int64, length int64) uint64 {
-	b := make([]byte, length)
-	n, err := reader.ReadAt(b, offset)
-	if err != nil {
-		panic(err)
-	} else if n != len(b) {
-		panic("cannot read")
-	}
-
-	// FIXME All cases are necessary for datarun offsets and lengths!
-	switch length {
-	case 0:
-		return 0
-	case 1:
-		return uint64(b[0])
-	case 2:
-		return uint64(binary.LittleEndian.Uint16(b))
-	case 4:
-		return uint64(binary.LittleEndian.Uint32(b))
-	case 8:
-		return uint64(binary.LittleEndian.Uint64(b))
-	default:
-		panic(fmt.Sprintf("invalid length %d", length))
-	}
 }
 
 func parseNTFS(filename string) {
@@ -248,6 +193,30 @@ func parseNTFS(filename string) {
 			}
 
 			fmt.Printf("entry %#v\n", entry)
+			hash := sha256.New()
+			f, _ := os.OpenFile("/home/pheckel/Code/ceph/client/a" + strconv.Itoa(i), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+
+			remaining := entry.fileSize
+
+			for _, fragment := range entry.runs {
+				bufferSize := int64(math.Min(float64(remaining), float64(fragment.toOffset - fragment.fromOffset)))
+				remaining -= uint64(bufferSize)
+
+				b := make([]byte, bufferSize)
+				n, err := fs.ReadAt(b, int64(fragment.fromOffset))
+				if err != nil {
+					panic(err)
+				}
+				if n != len(b) {
+					panic("invalid read")
+				}
+
+				f.Write(b)
+				hash.Write(b)
+			}
+
+			f.Close()
+			fmt.Printf("hash = %x\n", hash.Sum(nil))
 		}
 	}
 
