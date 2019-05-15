@@ -38,13 +38,13 @@ type run struct {
 	clusterCount uint64
 	size uint64
 
-	slices []chunkSlice // in which chunk is the data for this run
+	slices []*chunkSlice // in which chunk is the data for this run
 }
 
 type chunk struct {
 	checksum []byte
 	size int64
-	slices []slice
+	slices []*slice
 }
 
 type slice struct {
@@ -173,9 +173,11 @@ func readAndCompare(reader io.ReaderAt, offset int64, expected []byte) error {
  run: mft data run, pointing to sections with data on disk
  chunk: data blob, containing data from one or many runs
  slice: pointer to one or many runs, describing the offsets of how a chunk is assembled
+ chunkSlice: pointer to one or many parts of a chunk; a run's data can be spread across multiple chunks
 
  MFT entry runs:
     [   A     |  B |           C             ]        << run
+    [   |  |  |   ||   |   |   |   |   |   | ]        << runBuffer (fixed size)
 
  Chunks (and slices):
     [   1   |   2    |   3     |    4   |  5 ]        << chunk
@@ -198,19 +200,27 @@ func readAndCompare(reader io.ReaderAt, offset int64, expected []byte) error {
    5.slices = [C: 81-100]
 
  */
-func dedupFile(fs io.ReaderAt, entry *entry, i int, clusterSize uint64, chunkmap map[string]*chunk) {
+func dedupFile(fs io.ReaderAt, entry *entry, clusterSize uint64, chunkmap map[string]*chunk, clustermap map[int]*run) {
 	remainingToEndOfFile := entry.fileSize
 
 	currentChunkChecksum := sha256.New()
 	currentChunk := &chunk{
-		slices: make([]slice, 0),
+		slices: make([]*slice, 0),
 	}
-	//chunkSlice := &chunkSlice{}
+
+	currentChunkSlice := &chunkSlice{}
+	currentChunkSlice.chunk = currentChunk
+	currentChunkSlice.sparse = false
+	currentChunkSlice.from = 0
+
+	var lastRun *run
 
 	os.Mkdir("index", 0770)
 	f, _ := os.OpenFile("index/temp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 
 	for _, run := range entry.runs {
+		lastRun = &run
+
 		fmt.Printf("\nprocessing run at cluster %d, offset %d, cluster count = %d, size = %d\n",
 			run.firstCluster, run.fromOffset, run.clusterCount, run.size)
 
@@ -229,18 +239,22 @@ func dedupFile(fs io.ReaderAt, entry *entry, i int, clusterSize uint64, chunkmap
 				remainingToEndOfFile -= clusterSize
 			}
 
-			currentChunk.slices = append(currentChunk.slices, slice{
+			currentChunk.slices = append(currentChunk.slices, &slice{
 				sparse: true,
 				from:   run.fromOffset,
 				to:     run.toOffset,
 			})
 		} else {
+			clustermap[int(run.firstCluster)] = &run
+
 			runBuffer := make([]byte, chunkSizeMaxBytes) // buffer cannot be larger than chunkSizeMaxBytes!
 			runOffset := run.fromOffset
 			runSize := int64(math.Min(float64(remainingToEndOfFile), float64(run.size))) // only read to filesize, doesnt always align with clusters!
 
 			remainingToEndOfFile -= uint64(runSize)
 			remainingToEndOfRun := int64(runSize)
+
+			run.slices = make([]*chunkSlice, 0)
 
 			for remainingToEndOfRun > 0 {
 				remainingToFullChunk := chunkSizeMaxBytes - currentChunk.size
@@ -268,16 +282,19 @@ func dedupFile(fs io.ReaderAt, entry *entry, i int, clusterSize uint64, chunkmap
 				currentChunkChecksum.Write(runBuffer[:runBytesRead])
 
 				currentChunk.size += int64(runBytesRead)
-				currentChunk.slices = append(currentChunk.slices, slice{
+				currentChunk.slices = append(currentChunk.slices, &slice{
 					sparse: false,
 					from:   runOffset,
 					to:     runOffset + uint64(runBytesRead),
 				})
 
+				currentChunkSlice.to = uint64(currentChunk.size)
+
 				fmt.Printf("  -> adding %d bytes to chunk, new chunk size is %d\n", runBytesRead, currentChunk.size)
 
 				// Emit full chunk
 				if currentChunk.size >= chunkSizeMaxBytes {
+					// Calculate chunk checksum, add to global chunkmap
 					currentChunk.checksum = currentChunkChecksum.Sum(nil)
 					checksumStr := fmt.Sprintf("%x", currentChunk.checksum)
 
@@ -287,11 +304,18 @@ func dedupFile(fs io.ReaderAt, entry *entry, i int, clusterSize uint64, chunkmap
 						chunkmap[checksumStr] = currentChunk
 					}
 
+					// Add chunk slice to run
+					run.slices = append(run.slices, currentChunkSlice)
+
 					// New chunk
 					currentChunkChecksum.Reset()
 					currentChunk = &chunk{
-						slices: make([]slice, 0),
+						slices: make([]*slice, 0),
 					}
+					currentChunkSlice = &chunkSlice{}
+					currentChunkSlice.chunk = currentChunk
+					currentChunkSlice.sparse = false
+					currentChunkSlice.from = 0
 
 					f.Close()
 					os.Rename("index/temp", "index/" + checksumStr)
@@ -306,6 +330,7 @@ func dedupFile(fs io.ReaderAt, entry *entry, i int, clusterSize uint64, chunkmap
 
 	// Finish last chunk
 	if currentChunk.size > 0 {
+		// Calculate chunk checksum, add to global chunkmap
 		currentChunk.checksum = currentChunkChecksum.Sum(nil)
 		checksumStr := fmt.Sprintf("%x", currentChunk.checksum)
 
@@ -313,6 +338,11 @@ func dedupFile(fs io.ReaderAt, entry *entry, i int, clusterSize uint64, chunkmap
 
 		if _, ok := chunkmap[checksumStr]; !ok {
 			chunkmap[checksumStr] = currentChunk
+		}
+
+		// Add chunk slice to run
+		if lastRun != nil {
+			lastRun.slices = append(lastRun.slices, currentChunkSlice)
 		}
 
 		f.Close()
@@ -360,6 +390,7 @@ func parseNTFS(filename string) {
 	fmt.Printf("\n\nMFT: %#v\n\n", mft)
 
 	chunkmap := make(map[string]*chunk, 0)
+	clustermap := make(map[int]*run, 0)
 
 	for _, run := range mft.runs {
 		fmt.Printf("\n\nprocessing run: %#v\n\n", run)
@@ -387,7 +418,7 @@ func parseNTFS(filename string) {
 			}
 
 			fmt.Printf("\n\nFILE %#v\n", entry)
-			dedupFile(fs, entry, i, clusterSize, chunkmap)
+			dedupFile(fs, entry, clusterSize, chunkmap, clustermap)
 		}
 	}
 
@@ -396,6 +427,13 @@ func parseNTFS(filename string) {
 		fmt.Printf("- chunk %x: %#v\n", chunk.checksum, chunk.slices)
 	}
 
+	fmt.Println("\nruns:")
+	for cluster, run := range clustermap {
+		fmt.Printf("- run at start cluster %d, offset %d - %d\n", cluster, run.fromOffset, run.toOffset)
+		for _, slice := range run.slices {
+			fmt.Printf("  - chunk %x, offset %d - %d\n", slice.chunk.checksum, slice.from, slice.to)
+		}
+	}
 
 	m := &internal.ManifestV1{}
 	m.Size = uint64(stat.Size())
