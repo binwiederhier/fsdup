@@ -9,7 +9,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"sort"
 )
 
 const (
@@ -438,8 +437,8 @@ func parseNTFS(filename string) {
 	}
 
 	fmt.Println("\ndisk map:")
-	offsets := diskmap
-	sort.Slice(dirRange, func(i, j int) bool { return dirRange[i] < dirRange[j] })
+	//offsets := diskmap
+//	sort.Slice(dirRange, func(i, j int) bool { return dirRange[i] < dirRange[j] })
 
 	for offset, chunkPart := range diskmap {
 		size := chunkPart.to - chunkPart.from
