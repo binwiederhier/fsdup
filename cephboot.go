@@ -285,6 +285,16 @@ func main() {
 		id := os.Args[2]
 
 		mount(id)
+	case "mountntfs":
+		mountCommand.Parse(os.Args[2:])
+
+		if len(os.Args) < 3 {
+			exit(1, "Syntax: cephboot mount ID")
+		}
+
+		filename := os.Args[2]
+
+		mountManifest(filename)
 	default:
 		flag.PrintDefaults()
 		os.Exit(1)
