@@ -5,14 +5,17 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/golang/protobuf/proto"
 	"heckel.io/cephboot/internal"
 	"io"
+	"io/ioutil"
+	"log"
 	"os"
 	"sort"
 )
 
 const (
-	chunkSizeMaxBytes     = 4 * 1024 * 1024
+	chunkSizeMaxBytes     = 32 * 1024 * 1024
 	dedupFileSizeMinBytes = 4 * 1024 * 1024
 
 	// NTFS boot sector (absolute aka relative to file system start)
@@ -54,6 +57,14 @@ const (
 	ntfsAttrDataRunsHeaderLength = 1
 	ntfsAttrDataRunsHeaderEndMarker = 0
 )
+
+type nftsChunker struct {
+
+}
+
+type fixedSizeChunker struct {
+
+}
 
 type entry struct {
 	fileSize int64
@@ -277,12 +288,6 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 				currentChunkChecksum.Write(b)
 				remainingToEndOfFile -= clusterSize
 			}
-
-			currentChunk.diskSections = append(currentChunk.diskSections, &diskSection{
-				sparse: true,
-				from:   run.fromOffset,
-				to:     run.toOffset,
-			})
 		} else {
 			runBuffer := make([]byte, chunkSizeMaxBytes) // buffer cannot be larger than chunkSizeMaxBytes!
 			runOffset := run.fromOffset
@@ -298,7 +303,7 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 				fmt.Printf("- reading diskSection to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
 					runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(runBuffer))
 
-				runBytesRead, err := fs.ReadAt(runBuffer[:runBytesMaxToBeRead], int64(runOffset))
+				runBytesRead, err := fs.ReadAt(runBuffer[:runBytesMaxToBeRead], runOffset)
 				if err != nil {
 					panic(err)
 				}
@@ -375,12 +380,6 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 		os.Rename("index/temp", "index/" + checksumStr)
 	}
 
-
-	// algorithm:
-	// 1. parse ntfs mft entries
-	// 2. read FILE runs into chunks
-	// 3. build map cluster->run
-	// 4. walk all clusters 0 to X, and create remaining chunks
 }
 
 func parseNTFS(filename string) {
@@ -497,10 +496,20 @@ func parseNTFS(filename string) {
 	breakpointIndex := 0
 	breakpoint := int64(0)
 
-	for currentOffset < fileSize {
-		useBreakpoint := breakpointIndex < len(breakpoints)
+	chunkBuffer := make([]byte, chunkSizeMaxBytes)
+	/*currentChunk := &chunk{
+		diskSections: make([]*diskSection, 0),
+	}
+*/
+	currentChunkChecksum := sha256.New()
 
-		if useBreakpoint {
+	os.Mkdir("index", 0770)
+//	f, _ := os.OpenFile("index/temp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+
+	for currentOffset < fileSize {
+		hasNextBreakpoint := breakpointIndex < len(breakpoints)
+
+		if hasNextBreakpoint {
 			breakpoint = breakpoints[breakpointIndex]
 			bytesToBreakpoint := breakpoint - currentOffset
 			//fmt.Printf("i = %d, len = %d, breakpoint = %d, currentOffset = %d, bytes = %d\n",
@@ -512,16 +521,64 @@ func parseNTFS(filename string) {
 				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, fileSize)
 				chunkSize := chunkEndOffset - currentOffset
 
-				fmt.Printf("offset %d - %d, NEW chunk, size %d\n", currentOffset, chunkEndOffset, chunkSize)
-				/*manifest.Slices = append(manifest.Slices, &internal.Slice{
-					Checksum:
-				})*/
+				// EMIT CHUNK BEGIN
+				bytesRead, err := fs.ReadAt(chunkBuffer, currentOffset)
+				if err != nil {
+					panic(err)
+				}
+				if bytesRead != chunkSizeMaxBytes {
+					panic(fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead))
+				}
+
+				currentChunkChecksum.Reset()
+				currentChunkChecksum.Write(chunkBuffer[:bytesRead])
+				checksum := currentChunkChecksum.Sum(nil)
+
+				if err := writeChunkFile(checksum, chunkBuffer[:bytesRead]); err != nil {
+					panic(err)
+				}
+
+				// EMIT CHUNK END
+
+				fmt.Printf("offset %d - %d, NEW chunk %x, size %d\n", currentOffset, chunkEndOffset, checksum, chunkSize)
+
+				manifest.Slices = append(manifest.Slices, &internal.Slice{
+					Checksum: checksum,
+					Offset: 0,
+					Length: chunkSizeMaxBytes,
+				})
 
 				currentOffset = chunkEndOffset
 			} else {
 				if bytesToBreakpoint > 0 {
-					// FIXME emit chunk
-					fmt.Printf("offset %d - %d, NEW2 chunk, size %d\n", currentOffset, currentOffset + bytesToBreakpoint, bytesToBreakpoint)
+					// FIXME this should just buffer the current chunk and not emit is right away. It should FILL UP a chunk later!
+
+					// EMIT CHUNK BEGIN
+					bytesRead, err := fs.ReadAt(chunkBuffer[:bytesToBreakpoint], currentOffset)
+					if err != nil {
+						panic(err)
+					}
+					if int64(bytesRead) != bytesToBreakpoint {
+						panic(fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead))
+					}
+
+					currentChunkChecksum.Reset()
+					currentChunkChecksum.Write(chunkBuffer[:bytesRead])
+					checksum := currentChunkChecksum.Sum(nil)
+
+					if err := writeChunkFile(checksum, chunkBuffer[:bytesRead]); err != nil {
+						panic(err)
+					}
+
+					// EMIT CHUNK END
+
+					manifest.Slices = append(manifest.Slices, &internal.Slice{
+						Checksum: checksum,
+						Offset: 0,
+						Length: int64(bytesRead),
+					})
+
+					fmt.Printf("offset %d - %d, NEW2 chunk %x, size %d\n", currentOffset, currentOffset + bytesToBreakpoint, checksum, bytesToBreakpoint)
 					currentOffset += bytesToBreakpoint
 				}
 
@@ -532,6 +589,12 @@ func parseNTFS(filename string) {
 				fmt.Printf("offset %d - %d, existing chunk %x, offset %d - %d, part size %d\n",
 					currentOffset, currentOffset + partSize, chunk.checksum, part.from, part.to, partSize)
 
+				manifest.Slices = append(manifest.Slices, &internal.Slice{
+					Checksum: chunk.checksum,
+					Offset: part.from,
+					Length: partSize,
+				})
+
 				currentOffset += partSize
 				breakpointIndex++
 			}
@@ -541,10 +604,78 @@ func parseNTFS(filename string) {
 			chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, fileSize)
 			chunkSize := chunkEndOffset - currentOffset
 
-			fmt.Printf("offset %d - %d, NEW3 chunk, size %d\n", currentOffset, chunkEndOffset, chunkSize)
+			// EMIT CHUNK BEGIN
+			bytesRead, err := fs.ReadAt(chunkBuffer[:chunkSize], currentOffset)
+			if err != nil {
+				panic(err)
+			}
+			if int64(bytesRead) != chunkSize {
+				panic(fmt.Errorf("cannot read bytes from disk, %d read\n", bytesRead))
+			}
+
+			currentChunkChecksum.Reset()
+			currentChunkChecksum.Write(chunkBuffer[:bytesRead])
+			checksum := currentChunkChecksum.Sum(nil)
+
+			if err := writeChunkFile(checksum, chunkBuffer[:bytesRead]); err != nil {
+				panic(err)
+			}
+
+			// EMIT CHUNK END
+
+			fmt.Printf("offset %d - %d, NEW3 chunk %x, size %d\n", currentOffset, chunkEndOffset, checksum, chunkSize)
+			manifest.Slices = append(manifest.Slices, &internal.Slice{
+				Checksum: checksum,
+				Offset: 0,
+				Length: int64(bytesRead),
+			})
+
 			currentOffset = chunkEndOffset
 		}
 	}
+
+	println()
+	println("manifest (protobuf):")
+
+	offset := int64(0)
+
+	for _, slice := range manifest.Slices {
+		fmt.Printf("%010d - chunk %x - offset %10d - %10d, size %d\n",
+			offset, slice.Checksum, slice.Offset, slice.Offset + slice.Length, slice.Length)
+
+		offset += slice.Length
+	}
+
+	out, err := proto.Marshal(manifest)
+	if err != nil {
+		log.Fatalln("Failed to encode address book:", err)
+	}
+	if err := ioutil.WriteFile(filename + ".manifest", out, 0644); err != nil {
+		log.Fatalln("Failed to write address book:", err)
+	}
+}
+
+func writeChunkFile(checksum []byte, data []byte) error {
+	chunkFile := fmt.Sprintf("index/%x", checksum)
+
+	if _, err := os.Stat(chunkFile); err != nil {
+		err = ioutil.WriteFile(chunkFile, data, 0666)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type chunk2 struct {
+	data []byte
+	checksum     []byte
+	size         int64
+	diskSections []*diskSection
+}
+
+func (c *chunk2) Write() {
 
 }
 
