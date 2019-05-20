@@ -3,11 +3,11 @@ package internal;
 
 message Slice {
     bytes Checksum = 1;
-    uint64 Offset = 2;
-    uint64 Length = 3;
+    int64 Offset = 2;
+    int64 Length = 3;
 }
 
 message ManifestV1 {
-    uint64 Size = 1;
+    int64 Size = 1;
     repeated Slice Slices = 2;
 }

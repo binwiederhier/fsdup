@@ -2,8 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -287,18 +285,8 @@ func main() {
 		id := os.Args[2]
 
 		mount(id)
-	case "int":
-		a := uint64(196624384)
-		b := uint64(192643072)
-		c := a - b
-		fmt.Printf("%d\n", c)
 	default:
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-}
-func read_int32(data []byte) (ret int32) {
-	buf := bytes.NewBuffer(data)
-	binary.Read(buf, binary.LittleEndian, &ret)
-	return
 }

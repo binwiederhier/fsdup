@@ -27,35 +27,35 @@ const (
 )
 
 type entry struct {
-	fileSize uint64
+	fileSize int64
 	runs     []run
 }
 
 type run struct {
 	sparse bool
-	fromOffset   uint64
-	toOffset     uint64
+	fromOffset   int64
+	toOffset     int64
 	firstCluster int64 // signed!
-	clusterCount uint64
-	size uint64
+	clusterCount int64
+	size int64
 }
 
 type chunk struct {
 	checksum     []byte
-	size         uint64
+	size         int64
 	diskSections []*diskSection
 }
 
 type diskSection struct {
-	from uint64
-	to uint64
+	from int64
+	to int64
 	sparse bool
 }
 
 type chunkPart struct {
 	chunk *chunk
-	from uint64
-	to uint64
+	from int64
+	to int64
 }
 
 var ErrDataResident = errors.New("data is resident")
@@ -68,7 +68,7 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 	firstCluster := int64(0)
 
 	for {
-		header := readUintLE(reader, offset, 1)
+		header := readIntLE(reader, offset, 1)
 
 		if header == 0 {
 			break
@@ -76,7 +76,7 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 
 		clusterCountLength := header & 0x0F
 		clusterCountOffset := offset + 1
-		clusterCount := readUintLE(reader, clusterCountOffset, int64(clusterCountLength))
+		clusterCount := readIntLE(reader, clusterCountOffset, int64(clusterCountLength))
 
 		firstClusterLength := header & 0xF0 >> 4
 		firstClusterOffset := int64(clusterCountOffset) + int64(clusterCountLength)
@@ -96,9 +96,9 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 			sparse:       sparse,
 			firstCluster: firstCluster,
 			clusterCount: clusterCount,
-			fromOffset:   uint64(fromOffset),
-			toOffset:     uint64(toOffset),
-			size:         uint64(toOffset) - uint64(fromOffset),
+			fromOffset:   int64(fromOffset),
+			toOffset:     int64(toOffset),
+			size:         int64(toOffset) - int64(fromOffset),
 		})
 
 		offset += int64(firstClusterLength) + int64(clusterCountLength) + 1
@@ -113,7 +113,7 @@ func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, err
 		return nil, err
 	}
 
-	relativeFirstAttrOffset := readUintLE(reader, offset +ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
+	relativeFirstAttrOffset := readIntLE(reader, offset +ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
 
 	entry := &entry{}
 
@@ -121,23 +121,23 @@ func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, err
 	attrOffset := firstAttrOffset
 
 	for {
-		attrType := readUintLE(reader, attrOffset, 4)
-		attrLen := readUintLE(reader, attrOffset + 4, 4)
+		attrType := readIntLE(reader, attrOffset, 4)
+		attrLen := readIntLE(reader, attrOffset + 4, 4)
 
 		if attrType == ntfsAttrTypeData {
-			nonResident := readUintLE(reader, attrOffset + 8, 1)
+			nonResident := readIntLE(reader, attrOffset + 8, 1)
 
 			if nonResident == 0 {
 				return nil, ErrDataResident
 			}
 
-			dataRealSize := readUintLE(reader, attrOffset + 48, 8)
+			dataRealSize := readIntLE(reader, attrOffset + 48, 8)
 
 /*			if fileSize < 2 * 1024 * 1024 {
 				return nil, ErrFileTooSmallToIndex
 			}*/
 
-			relativeDataRunsOffset := readUintLE(reader, attrOffset + 32, 2)
+			relativeDataRunsOffset := readIntLE(reader, attrOffset + 32, 2)
 			dataRunFirstOffset := attrOffset + int64(relativeDataRunsOffset)
 
 			entry.fileSize = dataRealSize
@@ -218,7 +218,7 @@ func readAndCompare(reader io.ReaderAt, offset int64, expected []byte) error {
    chunk5.diskSections = [C: 81-100]
 
  */
-func dedupFile(fs io.ReaderAt, entry *entry, clusterSize uint64, chunkmap map[string]*chunk, diskmap map[uint64]*chunkPart) {
+func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[string]*chunk, diskmap map[int64]*chunkPart) {
 	remainingToEndOfFile := entry.fileSize
 
 	currentChunk := &chunk{
@@ -259,7 +259,7 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize uint64, chunkmap map[st
 			runOffset := run.fromOffset
 			runSize := int64(math.Min(float64(remainingToEndOfFile), float64(run.size))) // only read to filesize, doesnt always align with clusters!
 
-			remainingToEndOfFile -= uint64(runSize)
+			remainingToEndOfFile -= int64(runSize)
 			remainingToEndOfRun := int64(runSize)
 
 			for remainingToEndOfRun > 0 {
@@ -287,17 +287,17 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize uint64, chunkmap map[st
 
 				diskmap[runOffset] = &chunkPart{
 					chunk: currentChunk,
-					from: uint64(currentChunk.size),
-					to: uint64(currentChunk.size) + uint64(runBytesRead),
+					from: int64(currentChunk.size),
+					to: int64(currentChunk.size) + int64(runBytesRead),
 				}
 
 				currentChunkChecksum.Write(runBuffer[:runBytesRead])
 
-				currentChunk.size += uint64(runBytesRead)
+				currentChunk.size += int64(runBytesRead)
 				currentChunk.diskSections = append(currentChunk.diskSections, &diskSection{
 					sparse: false,
 					from:   runOffset,
-					to:     runOffset + uint64(runBytesRead),
+					to:     runOffset + int64(runBytesRead),
 				})
 
 				fmt.Printf("  -> adding %d bytes to chunk, new chunk size is %d\n", runBytesRead, currentChunk.size)
@@ -326,7 +326,7 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize uint64, chunkmap map[st
 				}
 
 				remainingToEndOfRun -= int64(runBytesRead)
-				runOffset += uint64(runBytesRead)
+				runOffset += int64(runBytesRead)
 			}
 		}
 	}
@@ -371,10 +371,10 @@ func parseNTFS(filename string) {
 		panic(err)
 	}
 
-	sectorSize := readUintLE(fs, ntfsSectorSizeOffset, ntfsSectorSizeLength)
-	sectorsPerCluster := readUintLE(fs, 13, 1)
+	sectorSize := readIntLE(fs, ntfsSectorSizeOffset, ntfsSectorSizeLength)
+	sectorsPerCluster := readIntLE(fs, 13, 1)
 	clusterSize := sectorSize * sectorsPerCluster
-	mftClusterNumber := readUintLE(fs, 48, 8)
+	mftClusterNumber := readIntLE(fs, 48, 8)
 	mftOffset := mftClusterNumber * clusterSize
 
 	fmt.Printf("sector size = %d, sectors per cluster = %d, cluster size = %d, mft cluster number = %d, mft offset = %d\n",
@@ -388,7 +388,7 @@ func parseNTFS(filename string) {
 	fmt.Printf("\n\nMFT: %#v\n\n", mft)
 
 	chunkmap := make(map[string]*chunk, 0)
-	diskmap := make(map[uint64]*chunkPart, 0)
+	diskmap := make(map[int64]*chunkPart, 0)
 
 	for _, run := range mft.runs {
 		fmt.Printf("\n\nprocessing run: %#v\n\n", run)
@@ -445,7 +445,7 @@ func parseNTFS(filename string) {
 	println("manifest:")
 
 	// Create manifest
-	breakpoints := make([]uint64, 0, len(diskmap))
+	breakpoints := make([]int64, 0, len(diskmap))
 	for breakpoint, _ := range diskmap {
 		breakpoints = append(breakpoints, breakpoint)
 	}
@@ -460,16 +460,16 @@ func parseNTFS(filename string) {
 
 
 	manifest := &internal.ManifestV1{}
-	manifest.Size = uint64(stat.Size())
+	manifest.Size = stat.Size()
 	manifest.Slices = make([]*internal.Slice, 0)
 
-	fileSize := uint64(stat.Size())
+	fileSize := int64(stat.Size())
 
-	currentOffset := uint64(0)
+	currentOffset := int64(0)
 	breakpointIndex := 0
-	breakpoint := uint64(0)
+	breakpoint := int64(0)
 
-	for uint64(currentOffset) < uint64(fileSize) {
+	for int64(currentOffset) < int64(fileSize) {
 		useBreakpoint := breakpointIndex < len(breakpoints)
 
 		if useBreakpoint {
@@ -481,14 +481,14 @@ func parseNTFS(filename string) {
 			if bytesToBreakpoint > chunkSizeMaxBytes {
 				// FIXME emit chunk
 
-				chunkEndOffset := minUint64(currentOffset + chunkSizeMaxBytes, fileSize)
+				chunkEndOffset := minint64(currentOffset + chunkSizeMaxBytes, fileSize)
 				chunkSize := chunkEndOffset - currentOffset
 
 				fmt.Printf("offset %d - %d, NEW chunk, size %d\n", currentOffset, chunkEndOffset, chunkSize)
 				/*manifest.Slices = append(manifest.Slices, &internal.Slice{
 					Checksum:
 				})*/
-				
+
 				currentOffset = chunkEndOffset
 			} else {
 				if bytesToBreakpoint > 0 {
@@ -509,7 +509,7 @@ func parseNTFS(filename string) {
 		} else {
 			// FIXME emit chunk
 
-			chunkEndOffset := minUint64(currentOffset + chunkSizeMaxBytes, fileSize)
+			chunkEndOffset := minint64(currentOffset + chunkSizeMaxBytes, fileSize)
 			chunkSize := chunkEndOffset - currentOffset
 
 			fmt.Printf("offset %d - %d, NEW3 chunk, size %d\n", currentOffset, chunkEndOffset, chunkSize)
@@ -519,7 +519,7 @@ func parseNTFS(filename string) {
 
 }
 
-func minUint64(a, b uint64) uint64 {
+func minint64(a, b int64) int64 {
 	if a < b {
 		return a
 	} else {
