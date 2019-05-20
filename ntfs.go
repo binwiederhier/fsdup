@@ -55,7 +55,6 @@ type chunkPart struct {
 	chunk *chunk
 	from uint64
 	to uint64
-	sparse bool
 }
 
 var ErrDataResident = errors.New("data is resident")
@@ -254,13 +253,6 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize uint64, chunkmap map[st
 				from:   run.fromOffset,
 				to:     run.toOffset,
 			})
-
-			diskmap[run.fromOffset] = &chunkPart{
-				sparse: true,
-				chunk: nil,
-				from: run.fromOffset,
-				to: run.toOffset,
-			}
 		} else {
 			runBuffer := make([]byte, chunkSizeMaxBytes) // buffer cannot be larger than chunkSizeMaxBytes!
 			runOffset := run.fromOffset
@@ -293,7 +285,6 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize uint64, chunkmap map[st
 				fmt.Printf("  - bytes read = %d, current chunk size = %d, chunk max = %d, fits in chunk = %t\n", runBytesRead, currentChunk.size, chunkSizeMaxBytes)
 
 				diskmap[runOffset] = &chunkPart{
-					sparse: false,
 					chunk: currentChunk,
 					from: uint64(currentChunk.size),
 					to: uint64(currentChunk.size) + uint64(runBytesRead),
@@ -432,7 +423,8 @@ func parseNTFS(filename string) {
 	for _, chunk := range chunkmap {
 		fmt.Printf("- chunk %x\n", chunk.checksum)
 		for _, diskSection := range chunk.diskSections {
-			fmt.Printf("  - disk section %d - %d\n", diskSection.from, diskSection.to)
+			size := diskSection.to - diskSection.from
+			fmt.Printf("  - disk section %d - %d, size %d\n", diskSection.from, diskSection.to, size)
 		}
 	}
 
@@ -442,8 +434,11 @@ func parseNTFS(filename string) {
 
 	for offset, chunkPart := range diskmap {
 		size := chunkPart.to - chunkPart.from
-		fmt.Printf("- offset %d - %d, chunk %x, offset %d - %d\n", offset, offset + size,
-			chunkPart.chunk.checksum, chunkPart.from, chunkPart.to)
+		sector := offset / sectorSize
+		cluster := sector / sectorsPerCluster
+
+		fmt.Printf("- offset %d - %d (sector %d, cluster %d), chunk %x, offset %d - %d, size %d\n",
+			offset, offset + size, sector, cluster, chunkPart.chunk.checksum, chunkPart.from, chunkPart.to, size)
 	}
 
 	m := &internal.ManifestV1{}
