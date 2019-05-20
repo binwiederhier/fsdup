@@ -7,23 +7,52 @@ import (
 	"fmt"
 	"heckel.io/cephboot/internal"
 	"io"
-	"math"
 	"os"
 	"sort"
 )
 
 const (
-	chunkSizeMaxBytes        = 4 * 1024 * 1024
-	dedupFileSizeMinBytes    = 4 * 1024 * 1024
-	ntfsMagicOffset          = 3
-	ntfsMagic                = "NTFS    "
-	ntfsSectorSizeOffset     = 11
-	ntfsSectorSizeLength     = 2
+	chunkSizeMaxBytes     = 4 * 1024 * 1024
+	dedupFileSizeMinBytes = 4 * 1024 * 1024
+
+	// NTFS boot sector (absolute aka relative to file system start)
+	ntfsMagicOffset             = 3
+	ntfsMagic                   = "NTFS    "
+	ntfsSectorSizeOffset        = 11
+	ntfsSectorSizeLength        = 2
+	ntfsSectorsPerClusterOffset = 13
+	ntfsSectorsPerClusterLength = 1
+	ntfsMftClusterNumberOffset = 48
+	ntfsMftClusterNumberLength = 8
+
+	// FILE entry (relative to FILE offset)
+	// https://flatcap.org/linux-ntfs/ntfs/concepts/file_record.html
 	ntfsEntryMagic           = "FILE"
 	ntfsEntryFirstAttrOffset = 20
 	ntfsEntryFirstAttrLength = 2
-	ntfsAttrTypeData         = 0x80
-	ntfsAttrTypeEndMarker    = 0xFFFFFF
+
+	// Attribute header / footer (relative to attribute offset)
+	// https://flatcap.org/linux-ntfs/ntfs/concepts/attribute_header.html
+	ntfsAttrTypeLength    = 4
+	ntfsAttrLengthOffset  = 4
+	ntfsAttrLengthLength  = 4
+	ntfsAttrTypeData      = 0x80
+	ntfsAttrTypeEndMarker = 0xFFFFFF
+
+	// Attribute 0x80 / $DATA (relative to attribute offset)
+	// https://flatcap.org/linux-ntfs/ntfs/attributes/data.html
+	ntfsAttrDataResidentOffset = 8
+	ntfsAttrDataResidentLength = 1
+	ntfsAttrDataRealSizeOffset = 48
+	ntfsAttrDataRealSizeLength = 8
+	ntfsAttrDataRunsOffset = 32
+	ntfsAttrDataRunsLength = 2
+
+	// Data run structure within $DATA attribute
+	// https://flatcap.org/linux-ntfs/ntfs/concepts/data_runs.html
+	ntfsAttrDataRunsHeaderOffset = 0
+	ntfsAttrDataRunsHeaderLength = 1
+	ntfsAttrDataRunsHeaderEndMarker = 0
 )
 
 type entry struct {
@@ -68,17 +97,17 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 	firstCluster := int64(0)
 
 	for {
-		header := readIntLE(reader, offset, 1)
+		header := readIntLE(reader, offset + ntfsAttrDataRunsHeaderOffset, ntfsAttrDataRunsHeaderLength)
 
-		if header == 0 {
+		if header == ntfsAttrDataRunsHeaderEndMarker {
 			break
 		}
 
-		clusterCountLength := header & 0x0F
+		clusterCountLength := header & 0x0F  // right nibble
 		clusterCountOffset := offset + 1
 		clusterCount := readIntLE(reader, clusterCountOffset, int64(clusterCountLength))
 
-		firstClusterLength := header & 0xF0 >> 4
+		firstClusterLength := header >> 4 // left nibble
 		firstClusterOffset := int64(clusterCountOffset) + int64(clusterCountLength)
 		firstCluster += readIntLE(reader, int64(firstClusterOffset), int64(firstClusterLength)) // relative to previous, can be negative, so signed!
 
@@ -87,7 +116,7 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 		fromOffset := int64(firstCluster) * int64(clusterSize)
 		toOffset := fromOffset + int64(clusterCount) * int64(clusterSize)
 
-		fmt.Printf("data run offset = %d, header = 0x%x, sparse = %b, length length = 0x%x, offset length = 0x%x, " +
+		fmt.Printf("data run offset = %d, header = 0x%x, sparse = %t, length length = 0x%x, offset length = 0x%x, " +
 			"cluster count = %d, first cluster = %d, from offset = %d, to offset = %d\n",
 			offset, header, sparse, clusterCountLength, firstClusterLength, clusterCount, firstCluster,
 			fromOffset, toOffset)
@@ -96,48 +125,48 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 			sparse:       sparse,
 			firstCluster: firstCluster,
 			clusterCount: clusterCount,
-			fromOffset:   int64(fromOffset),
-			toOffset:     int64(toOffset),
-			size:         int64(toOffset) - int64(fromOffset),
+			fromOffset:   fromOffset,
+			toOffset:     toOffset,
+			size:         toOffset - fromOffset,
 		})
 
-		offset += int64(firstClusterLength) + int64(clusterCountLength) + 1
+		offset += firstClusterLength + clusterCountLength + 1
 	}
 
 	return runs
 }
 
 func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, error) {
-	err := readAndCompare(reader, int64(offset), []byte(ntfsEntryMagic))
+	err := readAndCompare(reader, offset, []byte(ntfsEntryMagic))
 	if err != nil {
 		return nil, err
 	}
 
-	relativeFirstAttrOffset := readIntLE(reader, offset +ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
+	relativeFirstAttrOffset := readIntLE(reader, offset + ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
 
 	entry := &entry{}
 
-	firstAttrOffset := offset + int64(relativeFirstAttrOffset)
+	firstAttrOffset := offset + relativeFirstAttrOffset
 	attrOffset := firstAttrOffset
 
 	for {
-		attrType := readIntLE(reader, attrOffset, 4)
-		attrLen := readIntLE(reader, attrOffset + 4, 4)
+		attrType := readIntLE(reader, attrOffset, ntfsAttrTypeLength)
+		attrLen := readIntLE(reader, attrOffset + ntfsAttrLengthOffset, ntfsAttrLengthLength)
 
 		if attrType == ntfsAttrTypeData {
-			nonResident := readIntLE(reader, attrOffset + 8, 1)
+			nonResident := readIntLE(reader, attrOffset +ntfsAttrDataResidentOffset, ntfsAttrDataResidentLength)
 
 			if nonResident == 0 {
 				return nil, ErrDataResident
 			}
 
-			dataRealSize := readIntLE(reader, attrOffset + 48, 8)
+			dataRealSize := readIntLE(reader, attrOffset + ntfsAttrDataRealSizeOffset, ntfsAttrDataRealSizeLength)
 
 /*			if fileSize < 2 * 1024 * 1024 {
 				return nil, ErrFileTooSmallToIndex
 			}*/
 
-			relativeDataRunsOffset := readIntLE(reader, attrOffset + 32, 2)
+			relativeDataRunsOffset := readIntLE(reader, attrOffset + ntfsAttrDataRunsOffset, ntfsAttrDataRunsLength)
 			dataRunFirstOffset := attrOffset + int64(relativeDataRunsOffset)
 
 			entry.fileSize = dataRealSize
@@ -146,7 +175,7 @@ func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, err
 			break
 		}
 
-		attrOffset += int64(attrLen)
+		attrOffset += attrLen
 	}
 
 	if entry.runs == nil {
@@ -257,15 +286,14 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 		} else {
 			runBuffer := make([]byte, chunkSizeMaxBytes) // buffer cannot be larger than chunkSizeMaxBytes!
 			runOffset := run.fromOffset
-			runSize := int64(math.Min(float64(remainingToEndOfFile), float64(run.size))) // only read to filesize, doesnt always align with clusters!
+			runSize := minInt64(remainingToEndOfFile, run.size) // only read to filesize, doesnt always align with clusters!
 
-			remainingToEndOfFile -= int64(runSize)
-			remainingToEndOfRun := int64(runSize)
+			remainingToEndOfFile -= runSize
+			remainingToEndOfRun := runSize
 
 			for remainingToEndOfRun > 0 {
 				remainingToFullChunk := chunkSizeMaxBytes - currentChunk.size
-				runBytesMaxToBeRead := int(math.Min(float64(remainingToEndOfRun), float64(len(runBuffer))))
-				runBytesMaxToBeRead = int(math.Min(float64(runBytesMaxToBeRead), float64(remainingToFullChunk)))
+				runBytesMaxToBeRead := minInt64(minInt64(remainingToEndOfRun, remainingToFullChunk), int64(len(runBuffer)))
 
 				fmt.Printf("- reading diskSection to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
 					runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(runBuffer))
@@ -287,8 +315,8 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 
 				diskmap[runOffset] = &chunkPart{
 					chunk: currentChunk,
-					from: int64(currentChunk.size),
-					to: int64(currentChunk.size) + int64(runBytesRead),
+					from: currentChunk.size,
+					to: currentChunk.size + int64(runBytesRead),
 				}
 
 				currentChunkChecksum.Write(runBuffer[:runBytesRead])
@@ -372,15 +400,15 @@ func parseNTFS(filename string) {
 	}
 
 	sectorSize := readIntLE(fs, ntfsSectorSizeOffset, ntfsSectorSizeLength)
-	sectorsPerCluster := readIntLE(fs, 13, 1)
+	sectorsPerCluster := readIntLE(fs, ntfsSectorsPerClusterOffset, ntfsSectorsPerClusterLength)
 	clusterSize := sectorSize * sectorsPerCluster
-	mftClusterNumber := readIntLE(fs, 48, 8)
+	mftClusterNumber := readIntLE(fs, ntfsMftClusterNumberOffset, ntfsMftClusterNumberLength)
 	mftOffset := mftClusterNumber * clusterSize
 
 	fmt.Printf("sector size = %d, sectors per cluster = %d, cluster size = %d, mft cluster number = %d, mft offset = %d\n",
 		sectorSize, sectorsPerCluster, clusterSize, mftClusterNumber, mftOffset)
 
-	mft, err := readEntry(fs, int64(clusterSize), int64(mftOffset))
+	mft, err := readEntry(fs, clusterSize, mftOffset)
 	if err != nil {
 		panic(err)
 	}
@@ -393,16 +421,16 @@ func parseNTFS(filename string) {
 	for _, run := range mft.runs {
 		fmt.Printf("\n\nprocessing run: %#v\n\n", run)
 		entries := int(run.clusterCount * sectorsPerCluster)
-		firstSector := int64(run.firstCluster) * int64(sectorsPerCluster)
+		firstSector := run.firstCluster * sectorsPerCluster
 
 		for i := 1; i < entries; i++ { // Skip entry 0 ($MFT itself!)
 			sector := firstSector + int64(i)
-			sectorOffset := sector * int64(sectorSize)
+			sectorOffset := sector * sectorSize
 			// TODO we should look at entry.allocSize and jump ahead. This will cut the reads in half!
 
 			fmt.Printf("reading entry at sector %d / offset %d:\n", sector, sectorOffset)
 
-			entry, err := readEntry(fs, int64(clusterSize), sectorOffset)
+			entry, err := readEntry(fs, clusterSize, sectorOffset)
 			if err == ErrDataResident || err == ErrNoDataAttr || err == ErrUnexpectedMagic {
 				fmt.Printf("skipping FILE: %s\n\n", err.Error())
 				continue
@@ -463,13 +491,13 @@ func parseNTFS(filename string) {
 	manifest.Size = stat.Size()
 	manifest.Slices = make([]*internal.Slice, 0)
 
-	fileSize := int64(stat.Size())
+	fileSize := stat.Size()
 
 	currentOffset := int64(0)
 	breakpointIndex := 0
 	breakpoint := int64(0)
 
-	for int64(currentOffset) < int64(fileSize) {
+	for currentOffset < fileSize {
 		useBreakpoint := breakpointIndex < len(breakpoints)
 
 		if useBreakpoint {
@@ -481,7 +509,7 @@ func parseNTFS(filename string) {
 			if bytesToBreakpoint > chunkSizeMaxBytes {
 				// FIXME emit chunk
 
-				chunkEndOffset := minint64(currentOffset + chunkSizeMaxBytes, fileSize)
+				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, fileSize)
 				chunkSize := chunkEndOffset - currentOffset
 
 				fmt.Printf("offset %d - %d, NEW chunk, size %d\n", currentOffset, chunkEndOffset, chunkSize)
@@ -501,7 +529,8 @@ func parseNTFS(filename string) {
 				chunk := part.chunk
 				partSize := part.to - part.from
 
-				fmt.Printf("offset %d - %d, existing chunk %x, part size %d\n", currentOffset, currentOffset + partSize, chunk.checksum, partSize)
+				fmt.Printf("offset %d - %d, existing chunk %x, offset %d - %d, part size %d\n",
+					currentOffset, currentOffset + partSize, chunk.checksum, part.from, part.to, partSize)
 
 				currentOffset += partSize
 				breakpointIndex++
@@ -509,7 +538,7 @@ func parseNTFS(filename string) {
 		} else {
 			// FIXME emit chunk
 
-			chunkEndOffset := minint64(currentOffset + chunkSizeMaxBytes, fileSize)
+			chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, fileSize)
 			chunkSize := chunkEndOffset - currentOffset
 
 			fmt.Printf("offset %d - %d, NEW3 chunk, size %d\n", currentOffset, chunkEndOffset, chunkSize)
@@ -519,7 +548,7 @@ func parseNTFS(filename string) {
 
 }
 
-func minint64(a, b int64) int64 {
+func minInt64(a, b int64) int64 {
 	if a < b {
 		return a
 	} else {
