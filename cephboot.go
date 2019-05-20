@@ -121,9 +121,9 @@ func openPool() *rados.IOContext {
 	return pool
 }
 
-// index reads a file and slices it into pieces, and writes the slices
+// index reads a file and chunkParts it into pieces, and writes the chunkParts
 // to ceph. It also writes a metadata file "id" to ceph containing a reference
-// to all the slices.
+// to all the chunkParts.
 func index(id string, filename string) {
 	file, err := os.Open(filename)
 	check(err, 1, "cannot open file " + filename)
@@ -164,9 +164,9 @@ func index(id string, filename string) {
 				panic(err)
 			}
 
-			fmt.Printf("chunkSlice is NEW %s\n", checksum)
+			fmt.Printf("chunkPart is NEW %s\n", checksum)
 		} else {
-			fmt.Printf("chunkSlice exists %s\n", checksum)
+			fmt.Printf("chunkPart exists %s\n", checksum)
 		}
 
 		metadata = append(metadata, checksum)
@@ -180,7 +180,7 @@ func index(id string, filename string) {
 	println(id + " indexed")
 }
 
-// mount creates a block device that is backed by the slices in
+// mount creates a block device that is backed by the chunkParts in
 // ceph. It uses the metadata file written by the index function.
 func mount(id string) {
 	pool := openPool()
