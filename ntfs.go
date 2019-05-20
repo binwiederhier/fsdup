@@ -9,20 +9,21 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
 )
 
 const (
-	chunkSizeMaxBytes       = 4 * 1024 * 1024
-	dedupFileSizeMinBytes   = 4 * 1024 * 1024
-	ntfsMagicOffset         = 3
-	ntfsMagic               = "NTFS    "
-	ntfsSectorSizeOffset    = 11
-	ntfsSectorSizeLength    = 2
-	ENTRY_MAGIC             = "FILE"
-	ENTRY_FIRST_ATTR_OFFSET = 20
-	ENTRY_FIRST_ATTR_LENTGH = 2
-	ATTR_TYPE_DATA          = 0x80
-	ATTR_TYPE_END_MARKER    = 0xFFFFFF
+	chunkSizeMaxBytes        = 4 * 1024 * 1024
+	dedupFileSizeMinBytes    = 4 * 1024 * 1024
+	ntfsMagicOffset          = 3
+	ntfsMagic                = "NTFS    "
+	ntfsSectorSizeOffset     = 11
+	ntfsSectorSizeLength     = 2
+	ntfsEntryMagic           = "FILE"
+	ntfsEntryFirstAttrOffset = 20
+	ntfsEntryFirstAttrLength = 2
+	ntfsAttrTypeData         = 0x80
+	ntfsAttrTypeEndMarker    = 0xFFFFFF
 )
 
 type entry struct {
@@ -41,7 +42,7 @@ type run struct {
 
 type chunk struct {
 	checksum     []byte
-	size         int64
+	size         uint64
 	diskSections []*diskSection
 }
 
@@ -107,12 +108,12 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 }
 
 func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, error) {
-	err := readAndCompare(reader, int64(offset), []byte(ENTRY_MAGIC))
+	err := readAndCompare(reader, int64(offset), []byte(ntfsEntryMagic))
 	if err != nil {
 		return nil, err
 	}
 
-	relativeFirstAttrOffset := readUintLE(reader, offset + ENTRY_FIRST_ATTR_OFFSET, ENTRY_FIRST_ATTR_LENTGH)
+	relativeFirstAttrOffset := readUintLE(reader, offset +ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
 
 	entry := &entry{}
 
@@ -123,7 +124,7 @@ func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, err
 		attrType := readUintLE(reader, attrOffset, 4)
 		attrLen := readUintLE(reader, attrOffset + 4, 4)
 
-		if attrType == ATTR_TYPE_DATA {
+		if attrType == ntfsAttrTypeData {
 			nonResident := readUintLE(reader, attrOffset + 8, 1)
 
 			if nonResident == 0 {
@@ -141,7 +142,7 @@ func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, err
 
 			entry.fileSize = dataRealSize
 			entry.runs = readRuns(reader, clusterSize, dataRunFirstOffset)
-		} else if attrType == ATTR_TYPE_END_MARKER || attrLen == 0 {
+		} else if attrType == ntfsAttrTypeEndMarker || attrLen == 0 {
 			break
 		}
 
@@ -292,7 +293,7 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize uint64, chunkmap map[st
 
 				currentChunkChecksum.Write(runBuffer[:runBytesRead])
 
-				currentChunk.size += int64(runBytesRead)
+				currentChunk.size += uint64(runBytesRead)
 				currentChunk.diskSections = append(currentChunk.diskSections, &diskSection{
 					sparse: false,
 					from:   runOffset,
@@ -429,8 +430,6 @@ func parseNTFS(filename string) {
 	}
 
 	fmt.Println("\ndisk map:")
-	//offsets := diskmap
-//	sort.Slice(dirRange, func(i, j int) bool { return dirRange[i] < dirRange[j] })
 
 	for offset, chunkPart := range diskmap {
 		size := chunkPart.to - chunkPart.from
@@ -441,8 +440,90 @@ func parseNTFS(filename string) {
 			offset, offset + size, sector, cluster, chunkPart.chunk.checksum, chunkPart.from, chunkPart.to, size)
 	}
 
-	m := &internal.ManifestV1{}
-	m.Size = uint64(stat.Size())
 
+	println()
+	println("manifest:")
+
+	// Create manifest
+	breakpoints := make([]uint64, 0, len(diskmap))
+	for breakpoint, _ := range diskmap {
+		breakpoints = append(breakpoints, breakpoint)
+	}
+
+	sort.Slice(breakpoints, func(i, j int) bool {
+		return breakpoints[i] < breakpoints[j]
+	})
+
+	for _, b := range breakpoints {
+		println(b)
+	}
+
+
+	manifest := &internal.ManifestV1{}
+	manifest.Size = uint64(stat.Size())
+	manifest.Slices = make([]*internal.Slice, 0)
+
+	fileSize := uint64(stat.Size())
+
+	currentOffset := uint64(0)
+	breakpointIndex := 0
+	breakpoint := uint64(0)
+
+	for uint64(currentOffset) < uint64(fileSize) {
+		useBreakpoint := breakpointIndex < len(breakpoints)
+
+		if useBreakpoint {
+			breakpoint = breakpoints[breakpointIndex]
+			bytesToBreakpoint := breakpoint - currentOffset
+			//fmt.Printf("i = %d, len = %d, breakpoint = %d, currentOffset = %d, bytes = %d\n",
+			//	breakpointIndex, len(breakpoints), breakpoint, currentOffset, bytesToBreakpoint)
+
+			if bytesToBreakpoint > chunkSizeMaxBytes {
+				// FIXME emit chunk
+
+				chunkEndOffset := minUint64(currentOffset + chunkSizeMaxBytes, fileSize)
+				chunkSize := chunkEndOffset - currentOffset
+
+				fmt.Printf("offset %d - %d, NEW chunk, size %d\n", currentOffset, chunkEndOffset, chunkSize)
+				/*manifest.Slices = append(manifest.Slices, &internal.Slice{
+					Checksum:
+				})*/
+				
+				currentOffset = chunkEndOffset
+			} else {
+				if bytesToBreakpoint > 0 {
+					// FIXME emit chunk
+					fmt.Printf("offset %d - %d, NEW2 chunk, size %d\n", currentOffset, currentOffset + bytesToBreakpoint, bytesToBreakpoint)
+					currentOffset += bytesToBreakpoint
+				}
+
+				part := diskmap[breakpoint]
+				chunk := part.chunk
+				partSize := part.to - part.from
+
+				fmt.Printf("offset %d - %d, existing chunk %x, part size %d\n", currentOffset, currentOffset + partSize, chunk.checksum, partSize)
+
+				currentOffset += partSize
+				breakpointIndex++
+			}
+		} else {
+			// FIXME emit chunk
+
+			chunkEndOffset := minUint64(currentOffset + chunkSizeMaxBytes, fileSize)
+			chunkSize := chunkEndOffset - currentOffset
+
+			fmt.Printf("offset %d - %d, NEW3 chunk, size %d\n", currentOffset, chunkEndOffset, chunkSize)
+			currentOffset = chunkEndOffset
+		}
+	}
+
+}
+
+func minUint64(a, b uint64) uint64 {
+	if a < b {
+		return a
+	} else {
+		return b
+	}
 }
 

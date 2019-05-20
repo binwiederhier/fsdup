@@ -287,6 +287,11 @@ func main() {
 		id := os.Args[2]
 
 		mount(id)
+	case "int":
+		a := uint64(196624384)
+		b := uint64(192643072)
+		c := a - b
+		fmt.Printf("%d\n", c)
 	default:
 		flag.PrintDefaults()
 		os.Exit(1)
