@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/samalba/buse-go/buse"
-	"heckel.io/cephboot/internal"
+	"heckel.io/fsdup/internal"
 	"io/ioutil"
 	"log"
 	"os"

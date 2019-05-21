@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/golang/protobuf/proto"
-	"heckel.io/cephboot/internal"
+	"heckel.io/fsdup/internal"
 	"io"
 	"io/ioutil"
 	"log"
@@ -280,11 +280,6 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 			b := make([]byte, clusterSize)
 
 			for i := 0; i < int(run.clusterCount); i++ {
-				_, err := f.Write(b)
-				if err != nil {
-					panic(err)
-				}
-
 				currentChunkChecksum.Write(b)
 				remainingToEndOfFile -= clusterSize
 			}
@@ -300,8 +295,8 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 				remainingToFullChunk := chunkSizeMaxBytes - currentChunk.size
 				runBytesMaxToBeRead := minInt64(minInt64(remainingToEndOfRun, remainingToFullChunk), int64(len(runBuffer)))
 
-				fmt.Printf("- reading diskSection to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
-					runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(runBuffer))
+				fmt.Printf("- reading diskSection at offset %d to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
+					runOffset, runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(runBuffer))
 
 				runBytesRead, err := fs.ReadAt(runBuffer[:runBytesMaxToBeRead], runOffset)
 				if err != nil {
@@ -384,7 +379,9 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 
 func parseNTFS(filename string) {
 	fs, err := os.Open(filename)
-	check(err, 1, "cannot open file "+filename)
+	if err != nil {
+		log.Fatalln("Cannot open file:", err)
+	}
 
 	defer fs.Close()
 

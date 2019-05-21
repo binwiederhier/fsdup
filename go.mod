@@ -1,4 +1,4 @@
-module heckel.io/cephboot
+module heckel.io/fsdup
 
 go 1.12
 
