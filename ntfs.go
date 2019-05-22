@@ -30,24 +30,32 @@ const (
 
 	// FILE entry (relative to FILE offset)
 	// https://flatcap.org/linux-ntfs/ntfs/concepts/file_record.html
-	ntfsEntryMagic           = "FILE"
-	ntfsEntryFirstAttrOffset = 20
-	ntfsEntryFirstAttrLength = 2
+	ntfsEntryMagic                      = "FILE"
+	ntfsEntryUpdateSequenceOffsetOffset = 4
+	ntfsEntryUpdateSequenceOffsetLength = 2
+	ntfsEntryUpdateSequenceSizeOffset   = 6
+	ntfsEntryUpdateSequenceSizeLength   = 2
+	ntfsEntryUpdateSequenceNumberLength = 2
+	ntfsEntryAllocatedSizeOffset        = 28
+	ntfsEntryAllocatedSizeLength        = 4
+	ntfsEntryFirstAttrOffset            = 20
+	ntfsEntryFirstAttrLength            = 2
 
 	// Attribute header / footer (relative to attribute offset)
 	// https://flatcap.org/linux-ntfs/ntfs/concepts/attribute_header.html
+	ntfsAttrTypeOffset    = 0
 	ntfsAttrTypeLength    = 4
 	ntfsAttrLengthOffset  = 4
 	ntfsAttrLengthLength  = 4
 	ntfsAttrTypeData      = 0x80
-	ntfsAttrTypeEndMarker = 0xFFFFFF
+	ntfsAttrTypeEndMarker = -1 // 0xFFFFFFFF
 
 	// Attribute 0x80 / $DATA (relative to attribute offset)
 	// https://flatcap.org/linux-ntfs/ntfs/attributes/data.html
 	ntfsAttrDataResidentOffset = 8
 	ntfsAttrDataResidentLength = 1
 	ntfsAttrDataRealSizeOffset = 48
-	ntfsAttrDataRealSizeLength = 8
+	ntfsAttrDataRealSizeLength = 4
 	ntfsAttrDataRunsOffset = 32
 	ntfsAttrDataRunsLength = 2
 
@@ -103,24 +111,24 @@ var ErrNoDataAttr = errors.New("no data attribute")
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 var ErrFileTooSmallToIndex = errors.New("file too small to index")
 
-func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
+func readRuns(raw []byte, clusterSize int64, offset int64) []run {
 	runs := make([]run, 0)
 	firstCluster := int64(0)
 
 	for {
-		header := readIntLE(reader, offset + ntfsAttrDataRunsHeaderOffset, ntfsAttrDataRunsHeaderLength)
+		header := uint64(parseIntLE(raw, offset + ntfsAttrDataRunsHeaderOffset, ntfsAttrDataRunsHeaderLength))
 
 		if header == ntfsAttrDataRunsHeaderEndMarker {
 			break
 		}
 
-		clusterCountLength := header & 0x0F  // right nibble
-		clusterCountOffset := offset + 1
-		clusterCount := readIntLE(reader, clusterCountOffset, int64(clusterCountLength))
+		clusterCountLength := int64(header & 0x0F)  // right nibble
+		clusterCountOffset := offset + ntfsAttrDataRunsHeaderLength
+		clusterCount := parseUintLE(raw, clusterCountOffset, clusterCountLength)
 
-		firstClusterLength := header >> 4 // left nibble
-		firstClusterOffset := int64(clusterCountOffset) + int64(clusterCountLength)
-		firstCluster += readIntLE(reader, int64(firstClusterOffset), int64(firstClusterLength)) // relative to previous, can be negative, so signed!
+		firstClusterLength := int64(header & 0xF0 >> 4) // left nibble
+		firstClusterOffset := clusterCountOffset + clusterCountLength
+		firstCluster += parseIntLE(raw, firstClusterOffset, firstClusterLength) // relative to previous, can be negative, so signed!
 
 		sparse := firstClusterLength == 0
 
@@ -147,44 +155,87 @@ func readRuns(reader io.ReaderAt, clusterSize int64, offset int64) []run {
 	return runs
 }
 
-func readEntry(reader io.ReaderAt, clusterSize int64, offset int64) (*entry, error) {
+func readEntry(reader io.ReaderAt, sectorSize int64, clusterSize int64, offset int64) (*entry, error) {
 	err := readAndCompare(reader, offset, []byte(ntfsEntryMagic))
 	if err != nil {
 		return nil, err
 	}
 
-	relativeFirstAttrOffset := readIntLE(reader, offset + ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
+	// Read full entry into buffer (we're guessing size 1024 here)
+	buffer := make([]byte, 1024)
+	_, err = reader.ReadAt(buffer, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read entry length, and re-read the buffer if it differs
+	entrySize := parseUintLE(buffer, ntfsEntryAllocatedSizeOffset, ntfsEntryAllocatedSizeLength)
+	if int(entrySize) > len(buffer) {
+		buffer = make([]byte, entrySize)
+		_, err = reader.ReadAt(buffer, offset)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Apply fix-up
+	// see https://flatcap.org/linux-ntfs/ntfs/concepts/fixup.html
+	updateSequenceOffset := parseIntLE(buffer, ntfsEntryUpdateSequenceOffsetOffset, ntfsEntryUpdateSequenceOffsetLength)
+	updateSequenceSizeInWords := parseIntLE(buffer, ntfsEntryUpdateSequenceSizeOffset, ntfsEntryUpdateSequenceSizeLength)
+	updateSequenceArrayOffset := updateSequenceOffset + ntfsEntryUpdateSequenceNumberLength
+	updateSequenceArrayLength := 2*updateSequenceSizeInWords - 2 // see https://flatcap.org/linux-ntfs/ntfs/concepts/file_record.html
+	updateSequenceArray := buffer[updateSequenceArrayOffset:updateSequenceArrayOffset+updateSequenceArrayLength]
+
+	for i := int64(0); i < updateSequenceArrayLength/2; i++ {
+		buffer[(i+1)*sectorSize-2] = updateSequenceArray[i]
+		buffer[(i+1)*sectorSize-1] = updateSequenceArray[i+1]
+	}
 
 	entry := &entry{}
 
-	firstAttrOffset := offset + relativeFirstAttrOffset
+	relativeFirstAttrOffset := parseUintLE(buffer, ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
+	firstAttrOffset := relativeFirstAttrOffset
 	attrOffset := firstAttrOffset
 
 	for {
-		attrType := readIntLE(reader, attrOffset, ntfsAttrTypeLength)
-		attrLen := readIntLE(reader, attrOffset + ntfsAttrLengthOffset, ntfsAttrLengthLength)
+		fmt.Printf("attr offset: %d %d\n", attrOffset, len(buffer))
+		attrType := parseIntLE(buffer, attrOffset + ntfsAttrTypeOffset, ntfsAttrTypeLength)
+		fmt.Printf("attr type: %d\n", attrType)
+
+		if attrType == ntfsAttrTypeEndMarker {
+			break
+		}
+
+		attrLen := parseUintLE(buffer, attrOffset + ntfsAttrLengthOffset, ntfsAttrLengthLength)
+		fmt.Printf("attr len: %d\n", attrLen)
+		if attrLen == 0 { // FIXME this should really never happen!
+			break
+		}
 
 		if attrType == ntfsAttrTypeData {
-			nonResident := readIntLE(reader, attrOffset +ntfsAttrDataResidentOffset, ntfsAttrDataResidentLength)
+			nonResident := parseUintLE(buffer, attrOffset + ntfsAttrDataResidentOffset, ntfsAttrDataResidentLength)
 
 			if nonResident == 0 {
 				return nil, ErrDataResident
 			}
 
-			dataRealSize := readIntLE(reader, attrOffset + ntfsAttrDataRealSizeOffset, ntfsAttrDataRealSizeLength)
+			dataRealSize := parseUintLE(buffer, attrOffset + ntfsAttrDataRealSizeOffset, ntfsAttrDataRealSizeLength)
 
 /*			if fileSize < 2 * 1024 * 1024 {
 				return nil, ErrFileTooSmallToIndex
 			}*/
 
-			relativeDataRunsOffset := readIntLE(reader, attrOffset + ntfsAttrDataRunsOffset, ntfsAttrDataRunsLength)
+			relativeDataRunsOffset := parseIntLE(buffer, attrOffset + ntfsAttrDataRunsOffset, ntfsAttrDataRunsLength)
 			dataRunFirstOffset := attrOffset + int64(relativeDataRunsOffset)
 
+			b := make([]byte, attrLen)
+			reader.ReadAt(b, attrOffset)
+			fmt.Printf("FULL ATTR %x\n", b)
+
 			entry.fileSize = dataRealSize
-			entry.runs = readRuns(reader, clusterSize, dataRunFirstOffset)
-		} else if attrType == ntfsAttrTypeEndMarker || attrLen == 0 {
-			break
+			entry.runs = readRuns(buffer, clusterSize, dataRunFirstOffset)
 		}
+
 
 		attrOffset += attrLen
 	}
@@ -404,7 +455,7 @@ func parseNTFS(filename string) {
 	fmt.Printf("sector size = %d, sectors per cluster = %d, cluster size = %d, mft cluster number = %d, mft offset = %d\n",
 		sectorSize, sectorsPerCluster, clusterSize, mftClusterNumber, mftOffset)
 
-	mft, err := readEntry(fs, clusterSize, mftOffset)
+	mft, err := readEntry(fs, sectorSize, clusterSize, mftOffset)
 	if err != nil {
 		panic(err)
 	}
@@ -426,7 +477,7 @@ func parseNTFS(filename string) {
 
 			fmt.Printf("reading entry at sector %d / offset %d:\n", sector, sectorOffset)
 
-			entry, err := readEntry(fs, clusterSize, sectorOffset)
+			entry, err := readEntry(fs, sectorSize, clusterSize, sectorOffset)
 			if err == ErrDataResident || err == ErrNoDataAttr || err == ErrUnexpectedMagic {
 				fmt.Printf("skipping FILE: %s\n\n", err.Error())
 				continue
