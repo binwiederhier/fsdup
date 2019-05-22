@@ -6,7 +6,6 @@ import (
 	"os"
 )
 
-
 func exit(code int, message string) {
 	fmt.Println(message)
 	os.Exit(code)
@@ -14,7 +13,7 @@ func exit(code int, message string) {
 
 func main() {
 	indexCommand := flag.NewFlagSet("index", flag.ExitOnError)
-	mountCommand := flag.NewFlagSet("mount", flag.ExitOnError)
+	mapCommand := flag.NewFlagSet("map", flag.ExitOnError)
 
 	if len(os.Args) < 2 {
 		exit(1, "Syntax: fsdup index ID FILE\n        fsdup mount ID")
@@ -26,15 +25,18 @@ func main() {
 	case "index":
 		indexCommand.Parse(os.Args[2:])
 
-		if len(os.Args) < 2 {
-			exit(1, "Syntax: fsdup index FILE")
+		if len(os.Args) < 4 {
+			exit(1, "Syntax: fsdup index FILE|DISK|PARTITION MANIFEST")
 		}
 
 		file := os.Args[2]
+		manifest := os.Args[3]
 
-		parseNTFS(file)
-	case "mount":
-		mountCommand.Parse(os.Args[2:])
+		if err := index(file, manifest); err != nil {
+			exit(2, "Cannot index file: " + string(err.Error()))
+		}
+	case "map":
+		mapCommand.Parse(os.Args[2:])
 
 		if len(os.Args) < 3 {
 			exit(1, "Syntax: fsdup mount ID")
@@ -42,7 +44,7 @@ func main() {
 
 		filename := os.Args[2]
 
-		mountManifest(filename)
+		mapDevice(filename)
 	case "export":
 		if len(os.Args) < 4 {
 			exit(1, "Syntax: fsdup export MANIFEST OUTFILE")

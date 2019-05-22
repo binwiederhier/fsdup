@@ -116,7 +116,7 @@ func (d *localManifestImage) Trim(off, length uint) error {
 	return nil
 }
 
-func mountManifest(manifestFile string) {
+func mapDevice(manifestFile string) {
 	in, err := ioutil.ReadFile(manifestFile)
 	if err != nil {
 		log.Fatalln("Error reading file:", err)

@@ -19,14 +19,15 @@ const (
 	dedupFileSizeMinBytes = 4 * 1024 * 1024
 
 	// NTFS boot sector (absolute aka relative to file system start)
-	ntfsMagicOffset             = 3
-	ntfsMagic                   = "NTFS    "
-	ntfsSectorSizeOffset        = 11
-	ntfsSectorSizeLength        = 2
-	ntfsSectorsPerClusterOffset = 13
-	ntfsSectorsPerClusterLength = 1
-	ntfsMftClusterNumberOffset = 48
-	ntfsMftClusterNumberLength = 8
+	ntfsBootRecordSize              = 512
+	ntfsBootMagicOffset             = 3
+	ntfsBootMagic                   = "NTFS    "
+	ntfsBootSectorSizeOffset        = 11
+	ntfsBootSectorSizeLength        = 2
+	ntfsBootSectorsPerClusterOffset = 13
+	ntfsBootSectorsPerClusterLength = 1
+	ntfsBootMftClusterNumberOffset  = 48
+	ntfsBootMftClusterNumberLength  = 8
 
 	// FILE entry (relative to FILE offset)
 	// https://flatcap.org/linux-ntfs/ntfs/concepts/file_record.html
@@ -75,6 +76,7 @@ type fixedSizeChunker struct {
 }
 
 type entry struct {
+	allocatedSize int64
 	fileSize int64
 	runs     []run
 }
@@ -169,9 +171,9 @@ func readEntry(reader io.ReaderAt, sectorSize int64, clusterSize int64, offset i
 	}
 
 	// Read entry length, and re-read the buffer if it differs
-	entrySize := parseUintLE(buffer, ntfsEntryAllocatedSizeOffset, ntfsEntryAllocatedSizeLength)
-	if int(entrySize) > len(buffer) {
-		buffer = make([]byte, entrySize)
+	allocatedSize := parseUintLE(buffer, ntfsEntryAllocatedSizeOffset, ntfsEntryAllocatedSizeLength)
+	if int(allocatedSize) > len(buffer) {
+		buffer = make([]byte, allocatedSize)
 		_, err = reader.ReadAt(buffer, offset)
 		if err != nil {
 			return nil, err
@@ -191,23 +193,22 @@ func readEntry(reader io.ReaderAt, sectorSize int64, clusterSize int64, offset i
 		buffer[(i+1)*sectorSize-1] = updateSequenceArray[i+1]
 	}
 
-	entry := &entry{}
+	entry := &entry{
+		allocatedSize: allocatedSize,
+	}
 
 	relativeFirstAttrOffset := parseUintLE(buffer, ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
 	firstAttrOffset := relativeFirstAttrOffset
 	attrOffset := firstAttrOffset
 
 	for {
-		fmt.Printf("attr offset: %d %d\n", attrOffset, len(buffer))
 		attrType := parseIntLE(buffer, attrOffset + ntfsAttrTypeOffset, ntfsAttrTypeLength)
-		fmt.Printf("attr type: %d\n", attrType)
 
 		if attrType == ntfsAttrTypeEndMarker {
 			break
 		}
 
 		attrLen := parseUintLE(buffer, attrOffset + ntfsAttrLengthOffset, ntfsAttrLengthLength)
-		fmt.Printf("attr len: %d\n", attrLen)
 		if attrLen == 0 { // FIXME this should really never happen!
 			break
 		}
@@ -227,10 +228,6 @@ func readEntry(reader io.ReaderAt, sectorSize int64, clusterSize int64, offset i
 
 			relativeDataRunsOffset := parseIntLE(buffer, attrOffset + ntfsAttrDataRunsOffset, ntfsAttrDataRunsLength)
 			dataRunFirstOffset := attrOffset + int64(relativeDataRunsOffset)
-
-			b := make([]byte, attrLen)
-			reader.ReadAt(b, attrOffset)
-			fmt.Printf("FULL ATTR %x\n", b)
 
 			entry.fileSize = dataRealSize
 			entry.runs = readRuns(buffer, clusterSize, dataRunFirstOffset)
@@ -428,34 +425,35 @@ func dedupFile(fs io.ReaderAt, entry *entry, clusterSize int64, chunkmap map[str
 
 }
 
-func parseNTFS(filename string) {
-	fs, err := os.Open(filename)
-	if err != nil {
-		log.Fatalln("Cannot open file:", err)
+func parseNTFS(reader io.ReaderAt, fileSize int64, manifestFilename string) error {
+	if fileSize < ntfsBootRecordSize {
+		return errors.New("invalid boot sector, too small")
 	}
 
-	defer fs.Close()
-
-	stat, err := fs.Stat()
+	// Read NTFS boot sector
+	boot := make([]byte, ntfsBootRecordSize)
+	_, err := reader.ReadAt(boot, 0)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	err = readAndCompare(fs, ntfsMagicOffset, []byte(ntfsMagic))
-	if err != nil {
-		panic(err)
+	if bytes.Compare([]byte(ntfsBootMagic), boot[ntfsBootMagicOffset:ntfsBootMagicOffset+len(ntfsBootMagic)]) != 0 {
+		return errors.New("invalid boot sector, invalid magic")
 	}
 
-	sectorSize := readIntLE(fs, ntfsSectorSizeOffset, ntfsSectorSizeLength)
-	sectorsPerCluster := readIntLE(fs, ntfsSectorsPerClusterOffset, ntfsSectorsPerClusterLength)
+
+
+
+	sectorSize := parseUintLE(boot, ntfsBootSectorSizeOffset, ntfsBootSectorSizeLength)
+	sectorsPerCluster := parseUintLE(boot, ntfsBootSectorsPerClusterOffset, ntfsBootSectorsPerClusterLength)
 	clusterSize := sectorSize * sectorsPerCluster
-	mftClusterNumber := readIntLE(fs, ntfsMftClusterNumberOffset, ntfsMftClusterNumberLength)
+	mftClusterNumber := parseUintLE(boot, ntfsBootMftClusterNumberOffset, ntfsBootMftClusterNumberLength)
 	mftOffset := mftClusterNumber * clusterSize
 
 	fmt.Printf("sector size = %d, sectors per cluster = %d, cluster size = %d, mft cluster number = %d, mft offset = %d\n",
 		sectorSize, sectorsPerCluster, clusterSize, mftClusterNumber, mftOffset)
 
-	mft, err := readEntry(fs, sectorSize, clusterSize, mftOffset)
+	mft, err := readEntry(reader, sectorSize, clusterSize, mftOffset)
 	if err != nil {
 		panic(err)
 	}
@@ -477,7 +475,7 @@ func parseNTFS(filename string) {
 
 			fmt.Printf("reading entry at sector %d / offset %d:\n", sector, sectorOffset)
 
-			entry, err := readEntry(fs, sectorSize, clusterSize, sectorOffset)
+			entry, err := readEntry(reader, sectorSize, clusterSize, sectorOffset)
 			if err == ErrDataResident || err == ErrNoDataAttr || err == ErrUnexpectedMagic {
 				fmt.Printf("skipping FILE: %s\n\n", err.Error())
 				continue
@@ -491,7 +489,7 @@ func parseNTFS(filename string) {
 			}
 
 			fmt.Printf("\n\nFILE %#v\n", entry)
-			dedupFile(fs, entry, clusterSize, chunkmap, diskmap)
+			dedupFile(reader, entry, clusterSize, chunkmap, diskmap)
 		}
 	}
 
@@ -535,10 +533,8 @@ func parseNTFS(filename string) {
 
 
 	manifest := &internal.ManifestV1{}
-	manifest.Size = stat.Size()
+	manifest.Size = fileSize
 	manifest.Slices = make([]*internal.Slice, 0)
-
-	fileSize := stat.Size()
 
 	currentOffset := int64(0)
 	breakpointIndex := 0
@@ -570,7 +566,7 @@ func parseNTFS(filename string) {
 				chunkSize := chunkEndOffset - currentOffset
 
 				// EMIT CHUNK BEGIN
-				bytesRead, err := fs.ReadAt(chunkBuffer, currentOffset)
+				bytesRead, err := reader.ReadAt(chunkBuffer, currentOffset)
 				if err != nil {
 					panic(err)
 				}
@@ -602,7 +598,7 @@ func parseNTFS(filename string) {
 					// FIXME this should just buffer the current chunk and not emit is right away. It should FILL UP a chunk later!
 
 					// EMIT CHUNK BEGIN
-					bytesRead, err := fs.ReadAt(chunkBuffer[:bytesToBreakpoint], currentOffset)
+					bytesRead, err := reader.ReadAt(chunkBuffer[:bytesToBreakpoint], currentOffset)
 					if err != nil {
 						panic(err)
 					}
@@ -653,7 +649,7 @@ func parseNTFS(filename string) {
 			chunkSize := chunkEndOffset - currentOffset
 
 			// EMIT CHUNK BEGIN
-			bytesRead, err := fs.ReadAt(chunkBuffer[:chunkSize], currentOffset)
+			bytesRead, err := reader.ReadAt(chunkBuffer[:chunkSize], currentOffset)
 			if err != nil {
 				panic(err)
 			}
@@ -698,9 +694,11 @@ func parseNTFS(filename string) {
 	if err != nil {
 		log.Fatalln("Failed to encode address book:", err)
 	}
-	if err := ioutil.WriteFile(filename + ".manifest", out, 0644); err != nil {
+	if err := ioutil.WriteFile(manifestFilename, out, 0644); err != nil {
 		log.Fatalln("Failed to write address book:", err)
 	}
+
+	return nil
 }
 
 func writeChunkFile(checksum []byte, data []byte) error {
@@ -725,13 +723,5 @@ type chunk2 struct {
 
 func (c *chunk2) Write() {
 
-}
-
-func minInt64(a, b int64) int64 {
-	if a < b {
-		return a
-	} else {
-		return b
-	}
 }
 
