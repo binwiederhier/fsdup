@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
+	"io"
 )
 
 func parseIntLE(b []byte, offset int64, length int64) int64 {
@@ -41,4 +43,17 @@ func minInt64(a, b int64) int64 {
 	} else {
 		return b
 	}
+}
+
+func readAndCompare(reader io.ReaderAt, offset int64, expected []byte) error {
+	actual := make([]byte, len(expected))
+	n, err := reader.ReadAt(actual, offset)
+
+	if err != nil {
+		return err
+	} else if n != len(actual) || bytes.Compare(expected, actual) != 0 {
+		return ErrUnexpectedMagic
+	}
+
+	return nil
 }
