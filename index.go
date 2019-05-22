@@ -48,7 +48,7 @@ func index(inputFile string, manifestFile string) error {
 	// ...
 
 	ntfs := NewNtfsDeduper(file, size)
-	manifest, err := ntfs.index()
+	manifest, err := ntfs.Dedup()
 
 
 	println()

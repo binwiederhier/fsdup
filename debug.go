@@ -6,8 +6,8 @@ var (
 	debug = true
 )
 
-func Printf(fmt_str string, args ...interface{}) {
+func Debugf(format string, args ...interface{}) {
 	if debug {
-		fmt.Printf(fmt_str, args...)
+		fmt.Printf(format, args...)
 	}
 }

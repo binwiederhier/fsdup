@@ -71,6 +71,8 @@ type ntfsDeduper struct {
 	sectorSize int64
 	sectorsPerCluster int64
 	clusterSize int64
+	chunkmap map[string]*chunk
+	diskmap map[int64]*chunkPart
 }
 
 type fixedSizeChunker struct {
@@ -120,6 +122,8 @@ func NewNtfsDeduper(reader io.ReaderAt, size int64) *ntfsDeduper {
 	return &ntfsDeduper{
 		reader: reader,
 		size: size,
+		chunkmap: make(map[string]*chunk, 0),
+		diskmap: make(map[int64]*chunkPart, 0),
 	}
 }
 
@@ -234,7 +238,7 @@ func (self *ntfsDeduper) readRuns(entry []byte, offset int64) []run {
 		fromOffset := int64(firstCluster) * int64(self.clusterSize)
 		toOffset := fromOffset + int64(clusterCount) * int64(self.clusterSize)
 
-		Printf("data run offset = %d, header = 0x%x, sparse = %t, length length = 0x%x, offset length = 0x%x, " +
+		Debugf("data run offset = %d, header = 0x%x, sparse = %t, length length = 0x%x, offset length = 0x%x, " +
 			"cluster count = %d, first cluster = %d, from offset = %d, to offset = %d\n",
 			offset, header, sparse, clusterCountLength, firstClusterLength, clusterCount, firstCluster,
 			fromOffset, toOffset)
@@ -304,7 +308,7 @@ func (self *ntfsDeduper) readRuns(entry []byte, offset int64) []run {
    chunk5.diskSections = [C: 81-100]
 
  */
-func (self *ntfsDeduper) dedupFile(entry *entry, chunkmap map[string]*chunk, diskmap map[int64]*chunkPart) {
+func (self *ntfsDeduper) dedupFile(entry *entry) {
 	remainingToEndOfFile := entry.dataSize
 
 	currentChunk := &chunk{
@@ -359,7 +363,7 @@ func (self *ntfsDeduper) dedupFile(entry *entry, chunkmap map[string]*chunk, dis
 				// Add run to chunk(s)
 				fmt.Printf("  - bytes read = %d, current chunk size = %d, chunk max = %d, fits in chunk = %t\n", runBytesRead, currentChunk.size, chunkSizeMaxBytes)
 
-				diskmap[runOffset] = &chunkPart{
+				self.diskmap[runOffset] = &chunkPart{
 					chunk: currentChunk,
 					from: currentChunk.size,
 					to: currentChunk.size + int64(runBytesRead),
@@ -384,8 +388,8 @@ func (self *ntfsDeduper) dedupFile(entry *entry, chunkmap map[string]*chunk, dis
 
 					fmt.Printf("  -> emmitting full chunk %s, size = %d\n", checksumStr, currentChunk.size)
 
-					if _, ok := chunkmap[checksumStr]; !ok {
-						chunkmap[checksumStr] = currentChunk
+					if _, ok := self.chunkmap[checksumStr]; !ok {
+						self.chunkmap[checksumStr] = currentChunk
 					}
 
 					// New chunk
@@ -413,8 +417,8 @@ func (self *ntfsDeduper) dedupFile(entry *entry, chunkmap map[string]*chunk, dis
 
 		fmt.Printf("  -> emmitting LAST chunk = %s, size %d\n\n", checksumStr, currentChunk.size)
 
-		if _, ok := chunkmap[checksumStr]; !ok {
-			chunkmap[checksumStr] = currentChunk
+		if _, ok := self.chunkmap[checksumStr]; !ok {
+			self.chunkmap[checksumStr] = currentChunk
 		}
 
 		f.Close()
@@ -423,7 +427,7 @@ func (self *ntfsDeduper) dedupFile(entry *entry, chunkmap map[string]*chunk, dis
 
 }
 
-func (self *ntfsDeduper) index() (*internal.ManifestV1, error) {
+func (self *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 	if self.size < ntfsBootRecordSize {
 		return nil, errors.New("invalid boot sector, too small")
 	}
@@ -449,7 +453,7 @@ func (self *ntfsDeduper) index() (*internal.ManifestV1, error) {
 	mftClusterNumber := parseUintLE(boot, ntfsBootMftClusterNumberOffset, ntfsBootMftClusterNumberLength)
 	mftOffset := mftClusterNumber * self.clusterSize
 
-	Printf("sector size = %d, sectors per cluster = %d, cluster size = %d, mft cluster number = %d, mft offset = %d\n",
+	Debugf("sector size = %d, sectors per cluster = %d, cluster size = %d, mft cluster number = %d, mft offset = %d\n",
 		self.sectorSize, self.sectorsPerCluster, self.clusterSize, mftClusterNumber, mftOffset)
 
 	mft, err := self.readEntry(mftOffset)
@@ -457,10 +461,7 @@ func (self *ntfsDeduper) index() (*internal.ManifestV1, error) {
 		panic(err)
 	}
 
-	fmt.Printf("\n\nMFT: %#v\n\n", mft)
-
-	chunkmap := make(map[string]*chunk, 0)
-	diskmap := make(map[int64]*chunkPart, 0)
+	Debugf("\n\nMFT: %#v\n\n", mft)
 
 	for _, run := range mft.runs {
 		fmt.Printf("\n\nprocessing run: %#v\n\n", run)
@@ -487,38 +488,21 @@ func (self *ntfsDeduper) index() (*internal.ManifestV1, error) {
 				continue
 			}
 
-			Printf("\n\nFILE %#v\n", entry)
-			self.dedupFile(entry, chunkmap, diskmap)
+			Debugf("\n\nFILE %#v\n", entry)
+			self.dedupFile(entry)
 		}
 	}
 
-	fmt.Println("chunk map:")
-	for _, chunk := range chunkmap {
-		fmt.Printf("- chunk %x\n", chunk.checksum)
-		for _, diskSection := range chunk.diskSections {
-			size := diskSection.to - diskSection.from
-			fmt.Printf("  - disk section %d - %d, size %d\n", diskSection.from, diskSection.to, size)
-		}
+	if debug {
+		self.printMaps()
 	}
-
-	fmt.Println("\ndisk map:")
-
-	for offset, chunkPart := range diskmap {
-		size := chunkPart.to - chunkPart.from
-		sector := offset / self.sectorSize
-		cluster := sector / self.sectorsPerCluster
-
-		fmt.Printf("- offset %d - %d (sector %d, cluster %d), chunk %x, offset %d - %d, size %d\n",
-			offset, offset + size, sector, cluster, chunkPart.chunk.checksum, chunkPart.from, chunkPart.to, size)
-	}
-
-
+	
 	println()
 	println("manifest:")
 
 	// Create manifest
-	breakpoints := make([]int64, 0, len(diskmap))
-	for breakpoint, _ := range diskmap {
+	breakpoints := make([]int64, 0, len(self.diskmap))
+	for breakpoint, _ := range self.diskmap {
 		breakpoints = append(breakpoints, breakpoint)
 	}
 
@@ -624,7 +608,7 @@ func (self *ntfsDeduper) index() (*internal.ManifestV1, error) {
 					currentOffset += bytesToBreakpoint
 				}
 
-				part := diskmap[breakpoint]
+				part := self.diskmap[breakpoint]
 				chunk := part.chunk
 				partSize := part.to - part.from
 
@@ -677,6 +661,29 @@ func (self *ntfsDeduper) index() (*internal.ManifestV1, error) {
 	}
 
 	return manifest, nil
+}
+
+func (self *ntfsDeduper) printMaps() {
+	fmt.Println("chunk map:")
+	for _, chunk := range self.chunkmap {
+		fmt.Printf("- chunk %x\n", chunk.checksum)
+		for _, diskSection := range chunk.diskSections {
+			size := diskSection.to - diskSection.from
+			fmt.Printf("  - disk section %d - %d, size %d\n", diskSection.from, diskSection.to, size)
+		}
+	}
+
+	fmt.Println("\ndisk map:")
+
+	for offset, chunkPart := range self.diskmap {
+		size := chunkPart.to - chunkPart.from
+		sector := offset / self.sectorSize
+		cluster := sector / self.sectorsPerCluster
+
+		fmt.Printf("- offset %d - %d (sector %d, cluster %d), chunk %x, offset %d - %d, size %d\n",
+			offset, offset + size, sector, cluster, chunkPart.chunk.checksum, chunkPart.from, chunkPart.to, size)
+	}
+
 }
 
 func writeChunkFile(checksum []byte, data []byte) error {
