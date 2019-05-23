@@ -13,7 +13,7 @@ func exit(code int, message string) {
 
 func usage() {
 	fmt.Println("Syntax:")
-	fmt.Println("  fsdup index [-debug] INFILE MANIFEST")
+	fmt.Println("  fsdup index [-debug] [-nowrite] [-offset OFFSET] [-exact] INFILE MANIFEST")
 	fmt.Println("  fsdup map [-debug] MANIFEST")
 	fmt.Println("  fsdup export [-debug] MANIFEST OUTFILE")
 	fmt.Println("  fsdup print [-debug] MANIFEST")
