@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-func index(inputFile string, manifestFile string, offset int64, nowrite bool) error {
+func index(inputFile string, manifestFile string, offset int64, nowrite bool, exact bool) error {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool) er
 	// Determine file type (partition, NTFS, other)
 	// ...
 
-	ntfs := NewNtfsDeduper(file, offset, size, nowrite)
+	ntfs := NewNtfsDeduper(file, offset, size, nowrite, exact)
 	manifest, err := ntfs.Dedup()
 
 	if debug {

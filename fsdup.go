@@ -27,6 +27,7 @@ func main() {
 	indexDebugFlag := indexCommand.Bool("debug", debug, "Enable debug mode")
 	indexNoWriteFlag := indexCommand.Bool("nowrite", false, "Do not write chunk data, only manifest")
 	indexOffset := indexCommand.Int64("offset", 0, "Start reading file at given offset")
+	indexExact := indexCommand.Bool("exact", false, "Ignore the NTFS bitmap, i.e. include unused blocks")
 
 	mapCommand := flag.NewFlagSet("map", flag.ExitOnError)
 	mapDebugFlag := mapCommand.Bool("debug", debug, "Enable debug mode")
@@ -57,11 +58,12 @@ func main() {
 		debug = *indexDebugFlag
 		nowrite := *indexNoWriteFlag
 		offset := *indexOffset
+		exact := *indexExact
 
 		file := indexCommand.Arg(0)
 		manifest := indexCommand.Arg(1)
 
-		if err := index(file, manifest, offset, nowrite); err != nil {
+		if err := index(file, manifest, offset, nowrite, exact); err != nil {
 			exit(2, "Cannot index file: " + string(err.Error()))
 		}
 	case "map":

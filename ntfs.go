@@ -70,6 +70,7 @@ type ntfsDeduper struct {
 	offset            int64
 	size              int64
 	nowrite           bool
+	exact             bool
 	sectorSize        int64
 	sectorsPerCluster int64
 	clusterSize       int64
@@ -109,12 +110,13 @@ var ErrNoDataAttr = errors.New("no data attribute")
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 var ErrFileTooSmallToIndex = errors.New("file too small to index")
 
-func NewNtfsDeduper(reader io.ReaderAt, offset int64, size int64, nowrite bool) *ntfsDeduper {
+func NewNtfsDeduper(reader io.ReaderAt, offset int64, size int64, nowrite bool, exact bool) *ntfsDeduper {
 	return &ntfsDeduper{
 		reader:   reader,
 		offset:   offset,
 		size:     size,
 		nowrite:  nowrite,
+		exact:    exact,
 		chunkMap: make(map[string]bool, 0),
 		diskMap:  make(map[int64]*chunkPart, 0),
 	}
