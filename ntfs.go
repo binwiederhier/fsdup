@@ -351,17 +351,14 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 
 				// Emit full chunk, write file and add to chunk map
 				if chunk.Full() {
-					checksum := chunk.Checksum()
-					checksumStr := fmt.Sprintf("%x", checksum)
+					fmt.Printf("  -> emmitting full chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
 
-					fmt.Printf("  -> emmitting full chunk %s, size = %d\n", checksumStr, chunk.Size())
-
-					if _, ok := self.chunkMap[checksumStr]; !ok {
-						if err := writeChunkFile(checksum, chunk.Data()); err != nil {
+					if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
+						if err := writeChunkFile(chunk.Checksum(), chunk.Data()); err != nil {
 							return err
 						}
 
-						self.chunkMap[checksumStr] = true
+						self.chunkMap[chunk.ChecksumString()] = true
 					}
 
 					chunk.Reset()
@@ -375,21 +372,14 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 
 	// Finish last chunk
 	if chunk.Size() > 0 {
-		checksum := chunk.Checksum()
-		checksumStr := fmt.Sprintf("%x", checksum)
+		fmt.Printf("  -> emmitting LAST chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
 
-		fmt.Printf("  -> emmitting LAST chunk %s, size = %d\n", checksumStr, chunk.Size())
-
-		if _, ok := self.chunkMap[checksumStr]; !ok {
-			if err := writeChunkFile(checksum, chunk.Data()); err != nil {
+		if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
+			if err := writeChunkFile(chunk.Checksum(), chunk.Data()); err != nil {
 				return err
 			}
 
-			self.chunkMap[checksumStr] = true
-		}
-
-		if err := writeChunkFile(checksum, chunk.Data()); err != nil {
-			return err
+			self.chunkMap[chunk.ChecksumString()] = true
 		}
 	}
 
@@ -516,8 +506,12 @@ func (self *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 				chunk.Reset()
 				chunk.Write(buffer[:bytesRead])
 
-				if err := writeChunkFile(chunk.Checksum(), chunk.Data()); err != nil {
-					return nil, err
+				if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
+					if err := writeChunkFile(chunk.Checksum(), chunk.Data()); err != nil {
+						return nil, err
+					}
+
+					self.chunkMap[chunk.ChecksumString()] = true
 				}
 
 				Debugf("offset %d - %d, NEW chunk %x, size %d\n",
@@ -544,8 +538,12 @@ func (self *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 					chunk.Reset()
 					chunk.Write(buffer[:bytesRead])
 
-					if err := writeChunkFile(chunk.Checksum(), chunk.Data()); err != nil {
-						return nil, err
+					if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
+						if err := writeChunkFile(chunk.Checksum(), chunk.Data()); err != nil {
+							return nil, err
+						}
+
+						self.chunkMap[chunk.ChecksumString()] = true
 					}
 
 					manifest.Slices = append(manifest.Slices, &internal.Slice{
@@ -590,8 +588,12 @@ func (self *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 			chunk.Reset()
 			chunk.Write(buffer[:bytesRead])
 
-			if err := writeChunkFile(chunk.Checksum(), chunk.Data()); err != nil {
-				return nil, err
+			if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
+				if err := writeChunkFile(chunk.Checksum(), chunk.Data()); err != nil {
+					return nil, err
+				}
+
+				self.chunkMap[chunk.ChecksumString()] = true
 			}
 
 			Debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
@@ -677,6 +679,10 @@ func (c *fixedChunk) Checksum() []byte {
 	}
 
 	return c.checksum
+}
+
+func (c *fixedChunk) ChecksumString() string {
+	return fmt.Sprintf("%x", c.Checksum())
 }
 
 func (c *fixedChunk) Data() []byte {
