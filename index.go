@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"github.com/golang/protobuf/proto"
 	"io/ioutil"
 	"log"
@@ -12,7 +11,7 @@ import (
 	"strings"
 )
 
-func index(inputFile string, manifestFile string) error {
+func index(inputFile string, manifestFile string, offset int64, nowrite bool) error {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return err
@@ -47,20 +46,12 @@ func index(inputFile string, manifestFile string) error {
 	// Determine file type (partition, NTFS, other)
 	// ...
 
-	ntfs := NewNtfsDeduper(file, size)
+	ntfs := NewNtfsDeduper(file, offset, size, nowrite)
 	manifest, err := ntfs.Dedup()
 
-
-	println()
-	println("manifest (protobuf):")
-
-	offset := int64(0)
-
-	for _, slice := range manifest.Slices {
-		fmt.Printf("%010d - chunk %x - offset %10d - %10d, size %d\n",
-			offset, slice.Checksum, slice.Offset, slice.Offset + slice.Length, slice.Length)
-
-		offset += slice.Length
+	if debug {
+		Debugf("Manifest:\n")
+		printManifest(manifest)
 	}
 
 	out, err := proto.Marshal(manifest)

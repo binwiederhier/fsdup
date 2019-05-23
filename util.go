@@ -45,6 +45,14 @@ func minInt64(a, b int64) int64 {
 	}
 }
 
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
 func readAndCompare(reader io.ReaderAt, offset int64, expected []byte) error {
 	actual := make([]byte, len(expected))
 	n, err := reader.ReadAt(actual, offset)
