@@ -76,6 +76,7 @@ type ntfsDeduper struct {
 	clusterSize       int64
 	chunkMap          map[string]bool
 	diskMap           map[int64]*chunkPart
+	manifest          *internal.ManifestV1
 }
 
 type entry struct {
@@ -119,17 +120,21 @@ func NewNtfsDeduper(reader io.ReaderAt, offset int64, size int64, nowrite bool, 
 		exact:    exact,
 		chunkMap: make(map[string]bool, 0),
 		diskMap:  make(map[int64]*chunkPart, 0),
+		manifest: &internal.ManifestV1{
+			Size:   size,
+			Slices: make([]*internal.Slice, 0),
+		},
 	}
 }
 
-func (self *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
-	if self.size < ntfsBootRecordSize {
+func (d *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
+	if d.size < ntfsBootRecordSize {
 		return nil, errors.New("invalid boot sector, too small")
 	}
 
 	// Read NTFS boot sector
 	boot := make([]byte, ntfsBootRecordSize)
-	_, err := self.reader.ReadAt(boot, 0)
+	_, err := d.reader.ReadAt(boot, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -140,199 +145,44 @@ func (self *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 	}
 
 	// Read basic information
-	self.sectorSize = parseUintLE(boot, ntfsBootSectorSizeOffset, ntfsBootSectorSizeLength)
-	self.sectorsPerCluster = parseUintLE(boot, ntfsBootSectorsPerClusterOffset, ntfsBootSectorsPerClusterLength)
-	self.clusterSize = self.sectorSize * self.sectorsPerCluster
+	d.sectorSize = parseUintLE(boot, ntfsBootSectorSizeOffset, ntfsBootSectorSizeLength)
+	d.sectorsPerCluster = parseUintLE(boot, ntfsBootSectorsPerClusterOffset, ntfsBootSectorsPerClusterLength)
+	d.clusterSize = d.sectorSize * d.sectorsPerCluster
 
 	// Read $MFT entry
 	mftClusterNumber := parseUintLE(boot, ntfsBootMftClusterNumberOffset, ntfsBootMftClusterNumberLength)
-	mftOffset := mftClusterNumber * self.clusterSize
+	mftOffset := mftClusterNumber * d.clusterSize
 
 	Debugf("sector size = %d, sectors per cluster = %d, cluster size = %d, mft cluster number = %d, mft offset = %d\n",
-		self.sectorSize, self.sectorsPerCluster, self.clusterSize, mftClusterNumber, mftOffset)
+		d.sectorSize, d.sectorsPerCluster, d.clusterSize, mftClusterNumber, mftOffset)
 
-	mft, err := self.readEntry(mftOffset)
+	mft, err := d.readEntry(mftOffset)
 	if err != nil {
 		return nil, err
 	}
 
 	// Dedup FILE entries, and populate disk map
-	if err := self.dedupFiles(mft); err != nil {
+	if err := d.dedupFiles(mft); err != nil {
+		return nil, err
+	}
+	
+	// Dedup the rest (gap areas)
+	if err := d.dedupRest(); err != nil {
 		return nil, err
 	}
 
-	// Create manifest
-	breakpoints := make([]int64, 0, len(self.diskMap))
-	for breakpoint, _ := range self.diskMap {
-		breakpoints = append(breakpoints, breakpoint)
-	}
-
-	sort.Slice(breakpoints, func(i, j int) bool {
-		return breakpoints[i] < breakpoints[j]
-	})
-
-	manifest := &internal.ManifestV1{}
-	manifest.Size = self.size
-	manifest.Slices = make([]*internal.Slice, 0)
-
-	// We have determined the breakpoints for the FILE entries.
-	// Now, we'll process the non-FILE data to fill in the gaps.
-
-	currentOffset := int64(0)
-	breakpointIndex := 0
-	breakpoint := int64(0)
-
-	chunk := NewChunk()
-	buffer := make([]byte, chunkSizeMaxBytes)
-
-	os.Mkdir("index", 0770)
-
-	for currentOffset < self.size {
-		hasNextBreakpoint := breakpointIndex < len(breakpoints)
-
-		if hasNextBreakpoint {
-			// At this point, we figure out if the space from the current offset to the
-			// next breakpoint will fit in a full chunk.
-
-			breakpoint = breakpoints[breakpointIndex]
-			bytesToBreakpoint := breakpoint - currentOffset
-
-			if bytesToBreakpoint > chunkSizeMaxBytes {
-				// We can fill an entire chunk, because there are enough bytes to the next breakpoint
-
-				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, self.size)
-
-				bytesRead, err := self.reader.ReadAt(buffer, currentOffset)
-				if err != nil {
-					return nil, err
-				} else if bytesRead != chunkSizeMaxBytes {
-					return nil, fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
-				}
-
-				chunk.Reset()
-				chunk.Write(buffer[:bytesRead])
-
-				if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
-					if err := self.writeChunkFile(chunk); err != nil {
-						return nil, err
-					}
-
-					self.chunkMap[chunk.ChecksumString()] = true
-				}
-
-				Debugf("offset %d - %d, NEW chunk %x, size %d\n",
-					currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
-
-				manifest.Slices = append(manifest.Slices, &internal.Slice{
-					Checksum: chunk.Checksum(),
-					Offset: 0,
-					Length: chunk.Size(),
-				})
-
-				currentOffset = chunkEndOffset
-			} else {
-				// There are NOT enough bytes to the next breakpoint to fill an entire chunk
-
-				if bytesToBreakpoint > 0 {
-					// Create and emit a chunk from the current position to the breakpoint.
-					// This may create small chunks and is inefficient.
-					// FIXME this should just buffer the current chunk and not emit is right away. It should FILL UP a chunk later!
-
-					bytesRead, err := self.reader.ReadAt(buffer[:bytesToBreakpoint], currentOffset)
-					if err != nil {
-						return nil, err
-					} else if int64(bytesRead) != bytesToBreakpoint {
-						return nil, fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
-					}
-
-					chunk.Reset()
-					chunk.Write(buffer[:bytesRead])
-
-					if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
-						if err := self.writeChunkFile(chunk); err != nil {
-							return nil, err
-						}
-
-						self.chunkMap[chunk.ChecksumString()] = true
-					}
-
-					manifest.Slices = append(manifest.Slices, &internal.Slice{
-						Checksum: chunk.Checksum(),
-						Offset: 0,
-						Length: chunk.Size(),
-					})
-
-					Debugf("offset %d - %d, NEW2 chunk %x, size %d\n",
-						currentOffset, currentOffset + bytesToBreakpoint, chunk.Checksum(), chunk.Size())
-
-					currentOffset += bytesToBreakpoint
-				}
-
-				// Now we are AT the breakpoint.
-				// Simply add this entry to the manifest.
-
-				part := self.diskMap[breakpoint]
-				partSize := part.to - part.from
-
-				Debugf("offset %d - %d, size %d  -> FILE chunk %x, offset %d - %d\n",
-					currentOffset, currentOffset + partSize, partSize, part.checksum, part.from, part.to)
-
-				manifest.Slices = append(manifest.Slices, &internal.Slice{
-					Checksum: part.checksum,
-					Offset: part.from,
-					Length: partSize,
-				})
-
-				currentOffset += partSize
-				breakpointIndex++
-			}
-		} else {
-			chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, self.size)
-			chunkSize := chunkEndOffset - currentOffset
-
-			bytesRead, err := self.reader.ReadAt(buffer[:chunkSize], currentOffset)
-			if err != nil {
-				panic(err)
-			} else if int64(bytesRead) != chunkSize {
-				panic(fmt.Errorf("cannot read bytes from disk, %d read\n", bytesRead))
-			}
-
-			chunk.Reset()
-			chunk.Write(buffer[:bytesRead])
-
-			if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
-				if err := self.writeChunkFile(chunk); err != nil {
-					return nil, err
-				}
-
-				self.chunkMap[chunk.ChecksumString()] = true
-			}
-
-			Debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
-				currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
-
-			manifest.Slices = append(manifest.Slices, &internal.Slice{
-				Checksum: chunk.Checksum(),
-				Offset: 0,
-				Length: chunk.Size(),
-			})
-
-			currentOffset = chunkEndOffset
-		}
-	}
-
-	return manifest, nil
+	return d.manifest, nil
 }
 
-func (self *ntfsDeduper) readEntry(offset int64) (*entry, error) {
-	err := readAndCompare(self.reader, offset, []byte(ntfsEntryMagic))
+func (d *ntfsDeduper) readEntry(offset int64) (*entry, error) {
+	err := readAndCompare(d.reader, offset, []byte(ntfsEntryMagic))
 	if err != nil {
 		return nil, err
 	}
 
 	// Read full entry into buffer (we're guessing size 1024 here)
 	buffer := make([]byte, 1024)
-	_, err = self.reader.ReadAt(buffer, offset)
+	_, err = d.reader.ReadAt(buffer, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +191,7 @@ func (self *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 	allocatedSize := parseUintLE(buffer, ntfsEntryAllocatedSizeOffset, ntfsEntryAllocatedSizeLength)
 	if int(allocatedSize) > len(buffer) {
 		buffer = make([]byte, allocatedSize)
-		_, err = self.reader.ReadAt(buffer, offset)
+		_, err = d.reader.ReadAt(buffer, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -356,8 +206,8 @@ func (self *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 	updateSequenceArray := buffer[updateSequenceArrayOffset:updateSequenceArrayOffset+updateSequenceArrayLength]
 
 	for i := int64(0); i < updateSequenceArrayLength/2; i++ {
-		buffer[(i+1)*self.sectorSize-2] = updateSequenceArray[i]
-		buffer[(i+1)*self.sectorSize-1] = updateSequenceArray[i+1]
+		buffer[(i+1)*d.sectorSize-2] = updateSequenceArray[i]
+		buffer[(i+1)*d.sectorSize-1] = updateSequenceArray[i+1]
 	}
 
 	entry := &entry{
@@ -393,7 +243,7 @@ func (self *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 			dataRunFirstOffset := attrOffset + int64(relativeDataRunsOffset)
 
 			entry.dataSize = dataRealSize
-			entry.runs = self.readRuns(buffer, dataRunFirstOffset)
+			entry.runs = d.readRuns(buffer, dataRunFirstOffset)
 		}
 
 
@@ -407,22 +257,22 @@ func (self *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 	return entry, nil
 }
 
-func (self *ntfsDeduper) dedupFiles(mft *entry) error {
+func (d *ntfsDeduper) dedupFiles(mft *entry) error {
 	Debugf("\n\nMFT: %#v\n\n", mft)
 
 	for _, run := range mft.runs {
 		Debugf("\n\nprocessing run: %#v\n\n", run)
-		entries := int(run.clusterCount * self.sectorsPerCluster)
-		firstSector := run.firstCluster * self.sectorsPerCluster
+		entries := int(run.clusterCount * d.sectorsPerCluster)
+		firstSector := run.firstCluster * d.sectorsPerCluster
 
 		for i := 1; i < entries; i++ { // Skip entry 0 ($MFT itself!)
 			sector := firstSector + int64(i)
-			sectorOffset := sector * self.sectorSize
+			sectorOffset := sector * d.sectorSize
 			// TODO we should look at entry.allocSize and jump ahead. This will cut the reads in half!
 
 			Debugf("reading entry at sector %d / offset %d:\n", sector, sectorOffset)
 
-			entry, err := self.readEntry(sectorOffset)
+			entry, err := d.readEntry(sectorOffset)
 			if err == ErrDataResident || err == ErrNoDataAttr || err == ErrUnexpectedMagic {
 				Debugf("skipping FILE: %s\n\n", err.Error())
 				continue
@@ -436,7 +286,7 @@ func (self *ntfsDeduper) dedupFiles(mft *entry) error {
 			}
 
 			Debugf("\n\nFILE %#v\n", entry)
-			if err := self.dedupFile(entry); err != nil {
+			if err := d.dedupFile(entry); err != nil {
 				return err
 			}
 		}
@@ -445,7 +295,7 @@ func (self *ntfsDeduper) dedupFiles(mft *entry) error {
 	return nil
 }
 
-func (self *ntfsDeduper) readRuns(entry []byte, offset int64) []run {
+func (d *ntfsDeduper) readRuns(entry []byte, offset int64) []run {
 	runs := make([]run, 0)
 	firstCluster := int64(0)
 
@@ -466,8 +316,8 @@ func (self *ntfsDeduper) readRuns(entry []byte, offset int64) []run {
 
 		sparse := firstClusterLength == 0
 
-		fromOffset := int64(firstCluster) * int64(self.clusterSize)
-		toOffset := fromOffset + int64(clusterCount) * int64(self.clusterSize)
+		fromOffset := int64(firstCluster) * int64(d.clusterSize)
+		toOffset := fromOffset + int64(clusterCount) * int64(d.clusterSize)
 
 		Debugf("data run offset = %d, header = 0x%x, sparse = %t, length length = 0x%x, offset length = 0x%x, " +
 			"cluster count = %d, first cluster = %d, from offset = %d, to offset = %d\n",
@@ -519,7 +369,7 @@ func (self *ntfsDeduper) readRuns(entry []byte, offset int64) []run {
    chunk5.diskSections = [C: 81-100]
 
  */
-func (self *ntfsDeduper) dedupFile(entry *entry) error {
+func (d *ntfsDeduper) dedupFile(entry *entry) error {
 	remainingToEndOfFile := entry.dataSize
 
 	buffer := make([]byte, chunkSizeMaxBytes) // buffer cannot be larger than chunkSizeMaxBytes; the logic relies on it!
@@ -533,8 +383,8 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 			run.firstCluster, run.fromOffset, run.clusterCount, run.size)
 
 		if run.sparse {
-			Debugf("- sparse run, skipping %d bytes\n", self.clusterSize * run.clusterCount)
-			remainingToEndOfFile -= self.clusterSize * run.clusterCount
+			Debugf("- sparse run, skipping %d bytes\n", d.clusterSize * run.clusterCount)
+			remainingToEndOfFile -= d.clusterSize * run.clusterCount
 		} else {
 			runOffset := run.fromOffset
 			runSize := minInt64(remainingToEndOfFile, run.size) // only read to filesize, doesnt always align with clusters!
@@ -549,7 +399,7 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 				Debugf("- reading disk section at offset %d to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
 					runOffset, runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(buffer))
 
-				runBytesRead, err := self.reader.ReadAt(buffer[:runBytesMaxToBeRead], runOffset)
+				runBytesRead, err := d.reader.ReadAt(buffer[:runBytesMaxToBeRead], runOffset)
 				if err != nil {
 					return err
 				}
@@ -577,18 +427,18 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 					// Add parts to disk map
 					for partOffset, part := range parts {
 						part.checksum = chunk.Checksum()
-						self.diskMap[partOffset] = part
+						d.diskMap[partOffset] = part
 					}
 
 					parts = make(map[int64]*chunkPart, 0) // clear!
 
 					// Write chunk
-					if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
-						if err := self.writeChunkFile(chunk); err != nil {
+					if _, ok := d.chunkMap[chunk.ChecksumString()]; !ok {
+						if err := d.writeChunkFile(chunk); err != nil {
 							return err
 						}
 
-						self.chunkMap[chunk.ChecksumString()] = true
+						d.chunkMap[chunk.ChecksumString()] = true
 					}
 
 					chunk.Reset()
@@ -604,20 +454,26 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 	if chunk.Size() > 0 {
 		Debugf("  -> emmitting LAST chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
 
-		if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
-			if err := self.writeChunkFile(chunk); err != nil {
+		// Add parts to disk map
+		for partOffset, part := range parts {
+			part.checksum = chunk.Checksum()
+			d.diskMap[partOffset] = part
+		}
+
+		if _, ok := d.chunkMap[chunk.ChecksumString()]; !ok {
+			if err := d.writeChunkFile(chunk); err != nil {
 				return err
 			}
 
-			self.chunkMap[chunk.ChecksumString()] = true
+			d.chunkMap[chunk.ChecksumString()] = true
 		}
 	}
 
 	return nil
 }
 
-func (self *ntfsDeduper) writeChunkFile(chunk *fixedChunk) error {
-	if self.nowrite {
+func (d *ntfsDeduper) writeChunkFile(chunk *fixedChunk) error {
+	if d.nowrite {
 		return nil
 	}
 
@@ -627,6 +483,166 @@ func (self *ntfsDeduper) writeChunkFile(chunk *fixedChunk) error {
 		err = ioutil.WriteFile(chunkFile, chunk.Data(), 0666)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func (d *ntfsDeduper) dedupRest() error {
+	// Sort breakpoints to prepare for sequential disk traversal
+	breakpoints := make([]int64, 0, len(d.diskMap))
+	for breakpoint, _ := range d.diskMap {
+		breakpoints = append(breakpoints, breakpoint)
+	}
+
+	sort.Slice(breakpoints, func(i, j int) bool {
+		return breakpoints[i] < breakpoints[j]
+	})
+
+	// We have determined the breakpoints for the FILE entries.
+	// Now, we'll process the non-FILE data to fill in the gaps.
+
+	currentOffset := int64(0)
+	breakpointIndex := 0
+	breakpoint := int64(0)
+
+	chunk := NewChunk()
+	buffer := make([]byte, chunkSizeMaxBytes)
+
+	os.Mkdir("index", 0770)
+
+	for currentOffset < d.size {
+		hasNextBreakpoint := breakpointIndex < len(breakpoints)
+
+		if hasNextBreakpoint {
+			// At this point, we figure out if the space from the current offset to the
+			// next breakpoint will fit in a full chunk.
+
+			breakpoint = breakpoints[breakpointIndex]
+			bytesToBreakpoint := breakpoint - currentOffset
+
+			if bytesToBreakpoint > chunkSizeMaxBytes {
+				// We can fill an entire chunk, because there are enough bytes to the next breakpoint
+
+				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.size)
+
+				bytesRead, err := d.reader.ReadAt(buffer, currentOffset)
+				if err != nil {
+					return err
+				} else if bytesRead != chunkSizeMaxBytes {
+					return fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
+				}
+
+				chunk.Reset()
+				chunk.Write(buffer[:bytesRead])
+
+				if _, ok := d.chunkMap[chunk.ChecksumString()]; !ok {
+					if err := d.writeChunkFile(chunk); err != nil {
+						return err
+					}
+
+					d.chunkMap[chunk.ChecksumString()] = true
+				}
+
+				Debugf("offset %d - %d, NEW chunk %x, size %d\n",
+					currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
+
+				d.manifest.Slices = append(d.manifest.Slices, &internal.Slice{
+					Checksum: chunk.Checksum(),
+					Offset: 0,
+					Length: chunk.Size(),
+				})
+
+				currentOffset = chunkEndOffset
+			} else {
+				// There are NOT enough bytes to the next breakpoint to fill an entire chunk
+
+				if bytesToBreakpoint > 0 {
+					// Create and emit a chunk from the current position to the breakpoint.
+					// This may create small chunks and is inefficient.
+					// FIXME this should just buffer the current chunk and not emit is right away. It should FILL UP a chunk later!
+
+					bytesRead, err := d.reader.ReadAt(buffer[:bytesToBreakpoint], currentOffset)
+					if err != nil {
+						return err
+					} else if int64(bytesRead) != bytesToBreakpoint {
+						return fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
+					}
+
+					chunk.Reset()
+					chunk.Write(buffer[:bytesRead])
+
+					if _, ok := d.chunkMap[chunk.ChecksumString()]; !ok {
+						if err := d.writeChunkFile(chunk); err != nil {
+							return err
+						}
+
+						d.chunkMap[chunk.ChecksumString()] = true
+					}
+
+					d.manifest.Slices = append(d.manifest.Slices, &internal.Slice{
+						Checksum: chunk.Checksum(),
+						Offset: 0,
+						Length: chunk.Size(),
+					})
+
+					Debugf("offset %d - %d, NEW2 chunk %x, size %d\n",
+						currentOffset, currentOffset + bytesToBreakpoint, chunk.Checksum(), chunk.Size())
+
+					currentOffset += bytesToBreakpoint
+				}
+
+				// Now we are AT the breakpoint.
+				// Simply add this entry to the manifest.
+
+				part := d.diskMap[breakpoint]
+				partSize := part.to - part.from
+
+				Debugf("offset %d - %d, size %d  -> FILE chunk %x, offset %d - %d\n",
+					currentOffset, currentOffset + partSize, partSize, part.checksum, part.from, part.to)
+
+				d.manifest.Slices = append(d.manifest.Slices, &internal.Slice{
+					Checksum: part.checksum,
+					Offset: part.from,
+					Length: partSize,
+				})
+
+				currentOffset += partSize
+				breakpointIndex++
+			}
+		} else {
+			chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.size)
+			chunkSize := chunkEndOffset - currentOffset
+
+			bytesRead, err := d.reader.ReadAt(buffer[:chunkSize], currentOffset)
+			if err != nil {
+				panic(err)
+			} else if int64(bytesRead) != chunkSize {
+				panic(fmt.Errorf("cannot read bytes from disk, %d read\n", bytesRead))
+			}
+
+			chunk.Reset()
+			chunk.Write(buffer[:bytesRead])
+
+			if _, ok := d.chunkMap[chunk.ChecksumString()]; !ok {
+				if err := d.writeChunkFile(chunk); err != nil {
+					return err
+				}
+
+				d.chunkMap[chunk.ChecksumString()] = true
+			}
+
+			Debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
+				currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
+
+			d.manifest.Slices = append(d.manifest.Slices, &internal.Slice{
+				Checksum: chunk.Checksum(),
+				Offset: 0,
+				Length: chunk.Size(),
+			})
+
+			currentOffset = chunkEndOffset
 		}
 	}
 
