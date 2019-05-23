@@ -37,7 +37,7 @@ func export(manifestFile, outputFile string) {
 
 		read, err := chunk.ReadAt(buffer[:slice.Length], slice.Offset)
 		if err != nil {
-			log.Fatalln("Cannot read chunk:", err)
+			log.Fatalf("Cannot read chunk %x: %s\n", slice.Checksum, err.Error())
 		} else if int64(read) != slice.Length {
 			log.Fatalln("Cannot read all required bytes from chunk")
 		}
