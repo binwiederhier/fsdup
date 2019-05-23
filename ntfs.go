@@ -99,7 +99,7 @@ type fixedChunk struct {
 }
 
 type chunkPart struct {
-	chunk *fixedChunk
+	checksum []byte
 	from int64
 	to int64
 }
@@ -285,7 +285,10 @@ func (self *ntfsDeduper) readRuns(entry []byte, offset int64) []run {
 func (self *ntfsDeduper) dedupFile(entry *entry) error {
 	remainingToEndOfFile := entry.dataSize
 
+	buffer := make([]byte, chunkSizeMaxBytes) // buffer cannot be larger than chunkSizeMaxBytes; the logic relies on it!
 	chunk := NewChunk()
+	parts := make(map[int64]*chunkPart, 0)
+
 	os.Mkdir("index", 0770)
 
 	for _, run := range entry.runs {
@@ -296,7 +299,6 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 			Debugf("- sparse run, skipping %d bytes\n", self.clusterSize * run.clusterCount)
 			remainingToEndOfFile -= self.clusterSize * run.clusterCount
 		} else {
-			runBuffer := make([]byte, chunkSizeMaxBytes) // buffer cannot be larger than chunkSizeMaxBytes!
 			runOffset := run.fromOffset
 			runSize := minInt64(remainingToEndOfFile, run.size) // only read to filesize, doesnt always align with clusters!
 
@@ -305,12 +307,12 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 
 			for remainingToEndOfRun > 0 {
 				remainingToFullChunk := chunk.Remaining()
-				runBytesMaxToBeRead := minInt64(minInt64(remainingToEndOfRun, remainingToFullChunk), int64(len(runBuffer)))
+				runBytesMaxToBeRead := minInt64(minInt64(remainingToEndOfRun, remainingToFullChunk), int64(len(buffer)))
 
 				Debugf("- reading disk section at offset %d to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
-					runOffset, runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(runBuffer))
+					runOffset, runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(buffer))
 
-				runBytesRead, err := self.reader.ReadAt(runBuffer[:runBytesMaxToBeRead], runOffset)
+				runBytesRead, err := self.reader.ReadAt(buffer[:runBytesMaxToBeRead], runOffset)
 				if err != nil {
 					return err
 				}
@@ -321,20 +323,29 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 						runBytesRead, chunk.Size(), chunkSizeMaxBytes)
 				}
 
-				self.diskMap[runOffset] = &chunkPart{
-					chunk: chunk,
+				parts[runOffset] = &chunkPart{
+					checksum: nil, // fill this when chunk is finalized!
 					from: chunk.Size(),
 					to: chunk.Size() + int64(runBytesRead),
 				}
 
-				chunk.Write(runBuffer[:runBytesRead])
+				chunk.Write(buffer[:runBytesRead])
 
-				fmt.Printf("  -> adding %d bytes to chunk, new chunk size is %d\n", runBytesRead, chunk.Size())
+				Debugf("  -> adding %d bytes to chunk, new chunk size is %d\n", runBytesRead, chunk.Size())
 
 				// Emit full chunk, write file and add to chunk map
 				if chunk.Full() {
-					fmt.Printf("  -> emmitting full chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
+					Debugf("  -> emmitting full chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
 
+					// Add parts to disk map
+					for partOffset, part := range parts {
+						part.checksum = chunk.Checksum()
+						self.diskMap[partOffset] = part
+					}
+
+					parts = make(map[int64]*chunkPart, 0) // clear!
+
+					// Write chunk
 					if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
 						if err := self.writeChunkFile(chunk); err != nil {
 							return err
@@ -354,7 +365,7 @@ func (self *ntfsDeduper) dedupFile(entry *entry) error {
 
 	// Finish last chunk
 	if chunk.Size() > 0 {
-		fmt.Printf("  -> emmitting LAST chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
+		Debugf("  -> emmitting LAST chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
 
 		if _, ok := self.chunkMap[chunk.ChecksumString()]; !ok {
 			if err := self.writeChunkFile(chunk); err != nil {
@@ -547,14 +558,13 @@ func (self *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 				// Simply add this entry to the manifest.
 
 				part := self.diskMap[breakpoint]
-				chunk := part.chunk
 				partSize := part.to - part.from
 
 				Debugf("offset %d - %d, size %d  -> FILE chunk %x, offset %d - %d\n",
-					currentOffset, currentOffset + partSize, partSize, chunk.Checksum(), part.from, part.to)
+					currentOffset, currentOffset + partSize, partSize, part.checksum, part.from, part.to)
 
 				manifest.Slices = append(manifest.Slices, &internal.Slice{
-					Checksum: chunk.Checksum(),
+					Checksum: part.checksum,
 					Offset: part.from,
 					Length: partSize,
 				})
