@@ -21,12 +21,24 @@ func export(manifestFile, outputFile string) {
 	}
 
 	// Wipe output file (truncate to zero, then to target size)
-	if err := os.Truncate(outputFile, 0); err != nil {
-		log.Fatalln("Failed to truncate output file:", err)
+	if _, err := os.Stat(outputFile); err != nil {
+		file, err := os.Create(outputFile)
+		if err != nil {
+			log.Fatalln("Cannot create file:", err)
+		}
+
+		err = file.Close()
+		if err != nil {
+			log.Fatalln("Cannot close file:", err)
+		}
+	} else {
+		if err := os.Truncate(outputFile, 0); err != nil {
+			log.Fatalln("Failed to truncate output file:", err)
+		}
 	}
 
 	if err := os.Truncate(outputFile, manifest.Size); err != nil {
-		log.Fatalln("Failed to truncate output file:", err)
+		log.Fatalln("Failed to truncate output file to correct size:", err)
 	}
 
 	// Open file
