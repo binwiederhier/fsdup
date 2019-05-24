@@ -161,9 +161,16 @@ func (d *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 		return nil, err
 	}
 
-	// Dedup FILE entries, and populate disk map
+	// Find and checksum FILE entries
 	if err := d.dedupFiles(mft); err != nil {
 		return nil, err
+	}
+
+	// Find unused/empty sections based on the $Bitmap
+	if !d.exact {
+		if err := d.dedupUnused(mft); err != nil {
+			return nil, err
+		}
 	}
 
 	// Dedup the rest (gap areas)
@@ -234,7 +241,7 @@ func (d *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 			nonResident := parseUintLE(buffer, attrOffset + ntfsAttrDataResidentOffset, ntfsAttrDataResidentLength)
 
 			if nonResident == 0 {
-				return nil, ErrDataResident
+				return entry, ErrDataResident
 			}
 
 			dataRealSize := parseUintLE(buffer, attrOffset + ntfsAttrDataRealSizeOffset, ntfsAttrDataRealSizeLength)
@@ -251,44 +258,52 @@ func (d *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 	}
 
 	if entry.runs == nil {
-		return nil, ErrNoDataAttr
+		return entry, ErrNoDataAttr
 	}
 
 	return entry, nil
 }
 
 func (d *ntfsDeduper) dedupFiles(mft *entry) error {
-	Debugf("\n\nMFT: %#v\n\n", mft)
+	Debugf("Processing $MFT runs\n")
 
 	for _, run := range mft.runs {
-		Debugf("\n\nprocessing run: %#v\n\n", run)
-		entries := int(run.clusterCount * d.sectorsPerCluster)
-		firstSector := run.firstCluster * d.sectorsPerCluster
+		Debugf("Reading run (from = %d, to = %d, clusters = %d, size = %d, sparse = %t)\n",
+			run.fromOffset, run.toOffset, run.clusterCount, run.size, run.sparse)
 
-		for i := 1; i < entries; i++ { // Skip entry 0 ($MFT itself!)
-			sector := firstSector + int64(i)
-			sectorOffset := sector * d.sectorSize
-			// TODO we should look at entry.allocSize and jump ahead. This will cut the reads in half!
+		startOffset := run.firstCluster * d.sectorsPerCluster * d.sectorSize
+		endOffset := startOffset + run.clusterCount * d.sectorsPerCluster * d.sectorSize
 
-			Debugf("reading entry at sector %d / offset %d:\n", sector, sectorOffset)
+		offset := startOffset + mft.allocatedSize // Skip $MFT entry itself!
 
-			entry, err := d.readEntry(sectorOffset)
-			if err == ErrDataResident || err == ErrNoDataAttr || err == ErrUnexpectedMagic {
-				Debugf("skipping FILE: %s\n\n", err.Error())
+		for offset < endOffset {
+			entry, err := d.readEntry(offset)
+			if err == ErrUnexpectedMagic {
+				offset += d.sectorSize
+				Debugf("Entry at offset %d cannot be read: %s\n", offset, err.Error())
+				continue
+			} else if err == ErrDataResident || err == ErrNoDataAttr {
+				offset += entry.allocatedSize // Note: entry is still returned for these two errors!
+				Debugf("Entry at offset %d ignored: %s\n", offset, err.Error())
 				continue
 			} else if err != nil {
 				return err
 			}
 
 			if entry.dataSize < dedupFileSizeMinBytes {
-				Debugf("skipping FILE: too small\n\n")
+				offset += entry.allocatedSize
+				Debugf("Entry at offset %d skipped: %d byte(s) is too small\n", offset, entry.dataSize)
 				continue
 			}
 
-			Debugf("\n\nFILE %#v\n", entry)
 			if err := d.dedupFile(entry); err != nil {
-				return err
+				offset += entry.allocatedSize
+				Debugf("Entry at offset %d failed to be deduped:\n", offset, err.Error())
+				continue
 			}
+
+			Debugf("Entry at offset %d successfully indexed\n", offset)
+			offset += entry.allocatedSize
 		}
 	}
 
@@ -370,6 +385,8 @@ func (d *ntfsDeduper) readRuns(entry []byte, offset int64) []run {
 
  */
 func (d *ntfsDeduper) dedupFile(entry *entry) error {
+	Debugf("- Deduping FILE\n")
+
 	remainingToEndOfFile := entry.dataSize
 
 	buffer := make([]byte, chunkSizeMaxBytes) // buffer cannot be larger than chunkSizeMaxBytes; the logic relies on it!
@@ -379,11 +396,11 @@ func (d *ntfsDeduper) dedupFile(entry *entry) error {
 	os.Mkdir("index", 0770)
 
 	for _, run := range entry.runs {
-		Debugf("Processing run at cluster %d, offset %d, cluster count = %d, size = %d\n",
+		Debugf("  - Processing run at cluster %d, offset %d, cluster count = %d, size = %d\n",
 			run.firstCluster, run.fromOffset, run.clusterCount, run.size)
 
 		if run.sparse {
-			Debugf("- sparse run, skipping %d bytes\n", d.clusterSize * run.clusterCount)
+			Debugf("    -> Sparse run, skipping %d bytes\n", d.clusterSize * run.clusterCount)
 			remainingToEndOfFile -= d.clusterSize * run.clusterCount
 		} else {
 			runOffset := run.fromOffset
@@ -396,7 +413,7 @@ func (d *ntfsDeduper) dedupFile(entry *entry) error {
 				remainingToFullChunk := chunk.Remaining()
 				runBytesMaxToBeRead := minInt64(minInt64(remainingToEndOfRun, remainingToFullChunk), int64(len(buffer)))
 
-				Debugf("- reading disk section at offset %d to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
+				Debugf("    -> Reading disk section at offset %d to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
 					runOffset, runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(buffer))
 
 				runBytesRead, err := d.reader.ReadAt(buffer[:runBytesMaxToBeRead], d.start + runOffset)
@@ -646,6 +663,10 @@ func (d *ntfsDeduper) dedupRest() error {
 		}
 	}
 
+	return nil
+}
+
+func (d *ntfsDeduper) dedupUnused(mft *entry) error {
 	return nil
 }
 
