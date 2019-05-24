@@ -24,6 +24,8 @@ const (
 	ntfsBootSectorSizeLength        = 2
 	ntfsBootSectorsPerClusterOffset = 13
 	ntfsBootSectorsPerClusterLength = 1
+	ntfsBootTotalSectorsOffset      = 40
+	ntfsBootTotalSectorsLength      = 8
 	ntfsBootMftClusterNumberOffset  = 48
 	ntfsBootMftClusterNumberLength  = 8
 
@@ -67,10 +69,11 @@ const (
 
 type ntfsDeduper struct {
 	reader            io.ReaderAt
-	offset            int64
-	size              int64
+	start             int64
+	sizeInBytes       int64
 	nowrite           bool
 	exact             bool
+	totalSectors      int64
 	sectorSize        int64
 	sectorsPerCluster int64
 	clusterSize       int64
@@ -111,30 +114,24 @@ var ErrNoDataAttr = errors.New("no data attribute")
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 var ErrFileTooSmallToIndex = errors.New("file too small to index")
 
-func NewNtfsDeduper(reader io.ReaderAt, offset int64, size int64, nowrite bool, exact bool) *ntfsDeduper {
+func NewNtfsDeduper(reader io.ReaderAt, offset int64, nowrite bool, exact bool) *ntfsDeduper {
 	return &ntfsDeduper{
-		reader:   reader,
-		offset:   offset,
-		size:     size,
-		nowrite:  nowrite,
-		exact:    exact,
-		chunkMap: make(map[string]bool, 0),
-		diskMap:  make(map[int64]*chunkPart, 0),
+		reader:      reader,
+		start:       offset,
+		nowrite:     nowrite,
+		exact:       exact,
+		chunkMap:    make(map[string]bool, 0),
+		diskMap:     make(map[int64]*chunkPart, 0),
 		manifest: &internal.ManifestV1{
-			Size:   size,
 			Slices: make([]*internal.Slice, 0),
 		},
 	}
 }
 
 func (d *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
-	if d.size < ntfsBootRecordSize {
-		return nil, errors.New("invalid boot sector, too small")
-	}
-
 	// Read NTFS boot sector
 	boot := make([]byte, ntfsBootRecordSize)
-	_, err := d.reader.ReadAt(boot, 0)
+	_, err := d.reader.ReadAt(boot, d.start)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +144,10 @@ func (d *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 	// Read basic information
 	d.sectorSize = parseUintLE(boot, ntfsBootSectorSizeOffset, ntfsBootSectorSizeLength)
 	d.sectorsPerCluster = parseUintLE(boot, ntfsBootSectorsPerClusterOffset, ntfsBootSectorsPerClusterLength)
+	d.totalSectors =  parseUintLE(boot, ntfsBootTotalSectorsOffset, ntfsBootTotalSectorsLength)
 	d.clusterSize = d.sectorSize * d.sectorsPerCluster
+	d.sizeInBytes = d.sectorSize * d.totalSectors
+	d.manifest.Size = d.sizeInBytes
 
 	// Read $MFT entry
 	mftClusterNumber := parseUintLE(boot, ntfsBootMftClusterNumberOffset, ntfsBootMftClusterNumberLength)
@@ -165,7 +165,7 @@ func (d *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 	if err := d.dedupFiles(mft); err != nil {
 		return nil, err
 	}
-	
+
 	// Dedup the rest (gap areas)
 	if err := d.dedupRest(); err != nil {
 		return nil, err
@@ -175,14 +175,14 @@ func (d *ntfsDeduper) Dedup() (*internal.ManifestV1, error) {
 }
 
 func (d *ntfsDeduper) readEntry(offset int64) (*entry, error) {
-	err := readAndCompare(d.reader, offset, []byte(ntfsEntryMagic))
+	err := readAndCompare(d.reader, d.start + offset, []byte(ntfsEntryMagic))
 	if err != nil {
 		return nil, err
 	}
 
 	// Read full entry into buffer (we're guessing size 1024 here)
 	buffer := make([]byte, 1024)
-	_, err = d.reader.ReadAt(buffer, offset)
+	_, err = d.reader.ReadAt(buffer, d.start + offset)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (d *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 	allocatedSize := parseUintLE(buffer, ntfsEntryAllocatedSizeOffset, ntfsEntryAllocatedSizeLength)
 	if int(allocatedSize) > len(buffer) {
 		buffer = make([]byte, allocatedSize)
-		_, err = d.reader.ReadAt(buffer, offset)
+		_, err = d.reader.ReadAt(buffer, d.start + offset)
 		if err != nil {
 			return nil, err
 		}
@@ -399,7 +399,7 @@ func (d *ntfsDeduper) dedupFile(entry *entry) error {
 				Debugf("- reading disk section at offset %d to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
 					runOffset, runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(buffer))
 
-				runBytesRead, err := d.reader.ReadAt(buffer[:runBytesMaxToBeRead], runOffset)
+				runBytesRead, err := d.reader.ReadAt(buffer[:runBytesMaxToBeRead], d.start + runOffset)
 				if err != nil {
 					return err
 				}
@@ -512,7 +512,7 @@ func (d *ntfsDeduper) dedupRest() error {
 
 	os.Mkdir("index", 0770)
 
-	for currentOffset < d.size {
+	for currentOffset < d.sizeInBytes {
 		hasNextBreakpoint := breakpointIndex < len(breakpoints)
 
 		if hasNextBreakpoint {
@@ -525,9 +525,9 @@ func (d *ntfsDeduper) dedupRest() error {
 			if bytesToBreakpoint > chunkSizeMaxBytes {
 				// We can fill an entire chunk, because there are enough bytes to the next breakpoint
 
-				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.size)
+				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.sizeInBytes)
 
-				bytesRead, err := d.reader.ReadAt(buffer, currentOffset)
+				bytesRead, err := d.reader.ReadAt(buffer, d.start + currentOffset)
 				if err != nil {
 					return err
 				} else if bytesRead != chunkSizeMaxBytes {
@@ -563,7 +563,7 @@ func (d *ntfsDeduper) dedupRest() error {
 					// This may create small chunks and is inefficient.
 					// FIXME this should just buffer the current chunk and not emit is right away. It should FILL UP a chunk later!
 
-					bytesRead, err := d.reader.ReadAt(buffer[:bytesToBreakpoint], currentOffset)
+					bytesRead, err := d.reader.ReadAt(buffer[:bytesToBreakpoint], d.start + currentOffset)
 					if err != nil {
 						return err
 					} else if int64(bytesRead) != bytesToBreakpoint {
@@ -612,10 +612,10 @@ func (d *ntfsDeduper) dedupRest() error {
 				breakpointIndex++
 			}
 		} else {
-			chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.size)
+			chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.sizeInBytes)
 			chunkSize := chunkEndOffset - currentOffset
 
-			bytesRead, err := d.reader.ReadAt(buffer[:chunkSize], currentOffset)
+			bytesRead, err := d.reader.ReadAt(buffer[:chunkSize], d.start + currentOffset)
 			if err != nil {
 				panic(err)
 			} else if int64(bytesRead) != chunkSize {
