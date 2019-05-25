@@ -51,7 +51,7 @@ func main() {
 	case "index":
 		indexCommand.Parse(os.Args[2:])
 
-		if len(os.Args) < 4 {
+		if indexCommand.NArg() < 2 {
 			usage()
 		}
 
@@ -69,7 +69,7 @@ func main() {
 	case "map":
 		mapCommand.Parse(os.Args[2:])
 
-		if len(os.Args) < 3 {
+		if mapCommand.NArg() < 1 {
 			usage()
 		}
 
@@ -80,7 +80,7 @@ func main() {
 	case "export":
 		exportCommand.Parse(os.Args[2:])
 
-		if len(os.Args) < 4 {
+		if exportCommand.NArg() < 2 {
 			usage()
 		}
 
@@ -92,7 +92,7 @@ func main() {
 	case "print":
 		printCommand.Parse(os.Args[2:])
 
-		if len(os.Args) < 3 {
+		if printCommand.NArg() < 1 {
 			usage()
 		}
 
@@ -105,7 +105,7 @@ func main() {
 	case "stat":
 		statCommand.Parse(os.Args[2:])
 
-		if len(os.Args) < 3 {
+		if statCommand.NArg() < 1 {
 			usage()
 		}
 

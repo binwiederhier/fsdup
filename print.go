@@ -20,10 +20,10 @@ func printManifest(manifest *internal.ManifestV1) {
 
 	for _, slice := range manifest.Slices {
 		if slice.Checksum == nil {
-			fmt.Printf("diskoff %011d - %011d len %-10d -> sparse\n",
+			fmt.Printf("diskoff %013d - %013d len %-10d -> sparse\n",
 				offset, offset + slice.Length, slice.Length)
 		} else {
-			fmt.Printf("diskoff %011d - %011d len %-10d -> chunk %64x chunkoff %10d - %10d\n",
+			fmt.Printf("diskoff %013d - %013d len %-10d -> chunk %64x chunkoff %10d - %10d\n",
 				offset, offset + slice.Length, slice.Length, slice.Checksum, slice.Offset, slice.Offset + slice.Length)
 		}
 
@@ -47,6 +47,11 @@ func printManifestStats(manifestFiles []string) error {
 
 		for _, slice := range manifest.Slices {
 			checksumStr := fmt.Sprintf("%x", slice.Checksum)
+
+			// Ignore sparse sections
+			if slice.Checksum == nil {
+				continue
+			}
 
 			// This is a weird way to get the chunk size, but hey ...
 			if _, ok := chunkMap[checksumStr]; !ok {

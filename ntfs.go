@@ -32,6 +32,7 @@ const (
 	// FILE entry (relative to FILE offset)
 	// https://flatcap.org/linux-ntfs/ntfs/concepts/file_record.html
 	ntfsEntryMagic                      = "FILE"
+	ntfsEntryTypicalSize                = 1024
 	ntfsEntryUpdateSequenceOffsetOffset = 4
 	ntfsEntryUpdateSequenceOffsetLength = 2
 	ntfsEntryUpdateSequenceSizeOffset   = 6
@@ -41,6 +42,14 @@ const (
 	ntfsEntryAllocatedSizeLength        = 4
 	ntfsEntryFirstAttrOffset            = 20
 	ntfsEntryFirstAttrLength            = 2
+	ntfsEntryFlagsOffset                = 22
+	ntfsEntryFlagsLength                = 2
+	ntfsEntryFlagInUse                  = 1
+	ntfsEntryFlagDir                    = 2
+
+	// $Bitmap file
+	ntfsBitmapFileEntryIndex            = 6
+	ntfsBitmapMinSparseClusters         = 8 // arbitrary number
 
 	// Attribute header / footer (relative to attribute offset)
 	// https://flatcap.org/linux-ntfs/ntfs/concepts/attribute_header.html
@@ -83,6 +92,10 @@ type ntfsDeduper struct {
 }
 
 type entry struct {
+	offset        int64
+	resident      bool
+	data          bool
+	inuse         bool
 	allocatedSize int64
 	dataSize      int64
 	runs          []run
@@ -109,8 +122,6 @@ type chunkPart struct {
 	to int64
 }
 
-var ErrDataResident = errors.New("data is resident")
-var ErrNoDataAttr = errors.New("no data attribute")
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 var ErrFileTooSmallToIndex = errors.New("file too small to index")
 
@@ -188,7 +199,7 @@ func (d *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 	}
 
 	// Read full entry into buffer (we're guessing size 1024 here)
-	buffer := make([]byte, 1024)
+	buffer := make([]byte, ntfsEntryTypicalSize)
 	_, err = d.reader.ReadAt(buffer, d.start + offset)
 	if err != nil {
 		return nil, err
@@ -218,9 +229,22 @@ func (d *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 	}
 
 	entry := &entry{
+		offset: offset,
+		resident: false,
+		data: false,
+		inuse: false,
 		allocatedSize: allocatedSize,
 	}
 
+	// Read flags
+	flags := parseUintLE(buffer, ntfsEntryFlagsOffset, ntfsEntryFlagsLength)
+	entry.inuse = flags & ntfsEntryFlagInUse == ntfsEntryFlagInUse
+
+	if !entry.inuse {
+		return entry, nil
+	}
+
+	// Read attributes
 	relativeFirstAttrOffset := parseUintLE(buffer, ntfsEntryFirstAttrOffset, ntfsEntryFirstAttrLength)
 	firstAttrOffset := relativeFirstAttrOffset
 	attrOffset := firstAttrOffset
@@ -239,28 +263,23 @@ func (d *ntfsDeduper) readEntry(offset int64) (*entry, error) {
 
 		if attrType == ntfsAttrTypeData {
 			nonResident := parseUintLE(buffer, attrOffset + ntfsAttrDataResidentOffset, ntfsAttrDataResidentLength)
+			entry.resident = nonResident == 0
 
-			if nonResident == 0 {
-				return entry, ErrDataResident
+			if !entry.resident {
+				dataRealSize := parseUintLE(buffer, attrOffset + ntfsAttrDataRealSizeOffset, ntfsAttrDataRealSizeLength)
+
+				relativeDataRunsOffset := parseIntLE(buffer, attrOffset + ntfsAttrDataRunsOffset, ntfsAttrDataRunsLength)
+				dataRunFirstOffset := attrOffset + int64(relativeDataRunsOffset)
+
+				entry.dataSize = dataRealSize
+				entry.runs = d.readRuns(buffer, dataRunFirstOffset)
 			}
-
-			dataRealSize := parseUintLE(buffer, attrOffset + ntfsAttrDataRealSizeOffset, ntfsAttrDataRealSizeLength)
-
-			relativeDataRunsOffset := parseIntLE(buffer, attrOffset + ntfsAttrDataRunsOffset, ntfsAttrDataRunsLength)
-			dataRunFirstOffset := attrOffset + int64(relativeDataRunsOffset)
-
-			entry.dataSize = dataRealSize
-			entry.runs = d.readRuns(buffer, dataRunFirstOffset)
 		}
-
 
 		attrOffset += attrLen
 	}
 
-	if entry.runs == nil {
-		return entry, ErrNoDataAttr
-	}
-
+	entry.data = entry.runs != nil
 	return entry, nil
 }
 
@@ -282,12 +301,26 @@ func (d *ntfsDeduper) dedupFiles(mft *entry) error {
 				offset += d.sectorSize
 				Debugf("Entry at offset %d cannot be read: %s\n", offset, err.Error())
 				continue
-			} else if err == ErrDataResident || err == ErrNoDataAttr {
-				offset += entry.allocatedSize // Note: entry is still returned for these two errors!
-				Debugf("Entry at offset %d ignored: %s\n", offset, err.Error())
-				continue
 			} else if err != nil {
 				return err
+			}
+
+			if !entry.inuse {
+				offset += entry.allocatedSize
+				Debugf("Entry at offset %d ignored: deleted file\n", offset)
+				continue
+			}
+
+			if !entry.data {
+				offset += entry.allocatedSize
+				Debugf("Entry at offset %d ignored: no data attribute\n", offset)
+				continue
+			}
+
+			if entry.resident {
+				offset += entry.allocatedSize
+				Debugf("Entry at offset %d ignored: data is resident\n", offset)
+				continue
 			}
 
 			if entry.dataSize < dedupFileSizeMinBytes {
@@ -667,6 +700,92 @@ func (d *ntfsDeduper) dedupRest() error {
 }
 
 func (d *ntfsDeduper) dedupUnused(mft *entry) error {
+	// Find $Bitmap entry
+	var err error
+	bitmap := mft
+
+	for i := 0; i < ntfsBitmapFileEntryIndex; i++ {
+		Debugf("reading entry %d\n", bitmap.offset + bitmap.allocatedSize)
+		bitmap, err = d.readEntry(bitmap.offset + bitmap.allocatedSize)
+		if err != nil {
+			return err
+		}
+	}
+
+	// FIXME This relies solely on the offset. It does not verify that
+	//  what we have found is in fact the $Bitmap!
+
+	// Read $Bitmap
+	Debugf("$Bitmap is at offset %d\n", bitmap.offset)
+
+	remainingToEndOfFile := bitmap.dataSize
+	buffer := make([]byte, d.clusterSize)
+
+	lastWasZero := false
+	cluster := int64(0)
+	sparseClusterGroupStart := int64(0)
+	sparseClusterGroupEnd := int64(0)
+
+	for _, run := range bitmap.runs {
+		Debugf("  - Processing run at cluster %d, offset %d, cluster count = %d, size = %d\n",
+			run.firstCluster, run.fromOffset, run.clusterCount, run.size)
+
+		runOffset := run.fromOffset
+		runSize := minInt64(remainingToEndOfFile, run.size) // only read to filesize, doesnt always align with clusters!
+
+		remainingToEndOfFile -= runSize
+		remainingToEndOfRun := runSize
+
+		for remainingToEndOfRun > 0 {
+			runBytesMaxToBeRead := minInt64(remainingToEndOfRun, int64(len(buffer)))
+
+			Debugf("    -> Reading disk section at offset %d to max %d bytes (remaining to end of run = %d, run buffer size = %d)\n",
+				runOffset, runBytesMaxToBeRead, remainingToEndOfRun, len(buffer))
+
+			runBytesRead, err := d.reader.ReadAt(buffer[:runBytesMaxToBeRead], d.start + runOffset)
+			if err != nil {
+				return err
+			}
+
+			for i := 0; i < runBytesRead; i++ {
+				if buffer[i] == 0 {
+					if lastWasZero {
+						sparseClusterGroupEnd = cluster
+					} else {
+						lastWasZero = true
+						sparseClusterGroupStart = cluster
+						sparseClusterGroupEnd = cluster
+					}
+				} else {
+					if lastWasZero {
+						lastWasZero = false
+						isLargeEnough := (sparseClusterGroupEnd-sparseClusterGroupStart)*8 > ntfsBitmapMinSparseClusters
+
+						if isLargeEnough {
+							sparseSectionStartOffset := sparseClusterGroupStart * d.clusterSize * 8
+							sparseSectionEndOffset := sparseClusterGroupEnd * d.clusterSize * 8
+							sparseSectionLength := sparseSectionEndOffset - sparseSectionStartOffset
+
+							Debugf("- Detected large sparse section %d - %d (%d bytes)\n",
+								sparseSectionStartOffset, sparseSectionEndOffset, sparseSectionLength)
+
+							d.diskMap[sparseSectionStartOffset] = &chunkPart{
+								checksum: nil,
+								from: sparseSectionStartOffset,
+								to: sparseSectionEndOffset,
+							}
+						}
+					}
+				}
+
+				cluster++
+			}
+
+			remainingToEndOfRun -= int64(runBytesRead)
+			runOffset += int64(runBytesRead)
+		}
+	}
+
 	return nil
 }
 
