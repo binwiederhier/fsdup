@@ -6,6 +6,10 @@ import (
 	"io/ioutil"
 )
 
+type diskManifest struct {
+
+}
+
 func readManifestFromFile(manifestFile string) (*internal.ManifestV1, error) {
 	in, err := ioutil.ReadFile(manifestFile)
 	if err != nil {

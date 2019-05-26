@@ -6,6 +6,11 @@ import (
 	"os"
 )
 
+// TODO [HIGH] Support for MBR/GPT partition tables
+// TODO [HIGH] Support for any file
+// TODO [MED] Make manifest creation the last step (or part of all steps)
+// TODO [LOW] Sparsify all runs automatically
+
 func exit(code int, message string) {
 	fmt.Println(message)
 	os.Exit(code)
