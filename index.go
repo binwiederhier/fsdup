@@ -2,11 +2,9 @@ package main
 
 import (
 	"bytes"
-	"github.com/golang/protobuf/proto"
-	"heckel.io/fsdup/internal"
+	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 )
 
@@ -20,18 +18,50 @@ const (
 
 const (
 	probeTypeBufferLength = 512
-
-	mbrLength                         = 512
-	mbrSectorSize                     = 512
-	mbrSignatureOffset                = 510
-	mbrSignatureLength                = 2
-	mbrSignatureMagic                 = 0xaa55 // 0x55aa as little endian
-	mbrEntryCount                     = 4
-	mbrEntryFirstOffset               = 446
-	mbrEntryLength                    = 16
-	mbrFirstSectorRelativeOffset      = 8
-	mbrEntryFirstSectorRelativeLength = 4
 )
+
+type indexer interface {
+	WriteChunk(chunk *fixedChunk) error
+}
+
+type fileIndexer struct {
+	root     string
+	chunkMap map[string]bool
+}
+
+func NewFileIndexer(root string) *fileIndexer {
+	os.Mkdir(root, 0770)
+
+	return &fileIndexer{
+		root:     root,
+		chunkMap: make(map[string]bool, 0),
+	}
+}
+
+func (idx *fileIndexer) WriteChunk(chunk *fixedChunk) error {
+	if _, ok := idx.chunkMap[chunk.ChecksumString()]; !ok {
+		if err := idx.writeChunkFile(chunk); err != nil {
+			return err
+		}
+
+		idx.chunkMap[chunk.ChecksumString()] = true
+	}
+
+	return nil
+}
+
+func (idx *fileIndexer) writeChunkFile(chunk *fixedChunk) error {
+	chunkFile := fmt.Sprintf("%s/%x", idx.root, chunk.Checksum())
+
+	if _, err := os.Stat(chunkFile); err != nil {
+		err = ioutil.WriteFile(chunkFile, chunk.Data(), 0666)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 
 func index(inputFile string, manifestFile string, offset int64, nowrite bool, exact bool) error {
 	file, err := os.Open(inputFile)
@@ -41,7 +71,7 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 
 	defer file.Close()
 
-	manifest := &internal.ManifestV1{}
+	var manifest *diskManifest
 
 	fileType, err := probeType(file, offset)
 	if err != nil {
@@ -59,20 +89,15 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 
 	if debug {
 		Debugf("Manifest:\n")
-		printManifest(manifest)
+		manifest.Print()
 	}
 
-	out, err := proto.Marshal(manifest)
-	if err != nil {
-		log.Fatalln("Failed to encode address book:", err)
-	}
-	if err := ioutil.WriteFile(manifestFile, out, 0644); err != nil {
-		log.Fatalln("Failed to write address book:", err)
+	if err := manifest.WriteToFile(manifestFile); err != nil {
+		return err
 	}
 
 	return nil
 }
-
 
 func probeType(reader io.ReaderAt, offset int64) (fileType, error) {
 	buffer := make([]byte, probeTypeBufferLength)
@@ -94,51 +119,16 @@ func probeType(reader io.ReaderAt, offset int64) (fileType, error) {
 	return typeUnknown, nil
 }
 
-func indexMbrDisk(reader io.ReaderAt, offset int64, nowrite bool, exact bool) (*internal.ManifestV1, error) {
-	println("i am a disk")
-
-	buffer := make([]byte, mbrLength)
-	_, err := reader.ReadAt(buffer, offset)
-	if err != nil {
-		return nil, err
-	}
-
-	for i := int64(0); i < mbrEntryCount; i++ {
-		entryOffset := mbrEntryFirstOffset + i * mbrEntryLength
-
-		partitionFirstSector := parseUintLE(buffer, entryOffset+mbrFirstSectorRelativeOffset, mbrEntryFirstSectorRelativeLength)
-		partitionOffset := offset + partitionFirstSector*mbrSectorSize
-		Debugf("Reading MBR entry at %d, partition begins at sector %d, offset %d\n",
-			entryOffset, partitionFirstSector, partitionOffset)
-
-		if partitionOffset == 0 {
-			continue
-		}
-
-		partitionType, err := probeType(reader, partitionOffset)
-		if err != nil {
-			continue
-		}
-
-		if partitionType == typeNtfs {
-			Debugf("NTFS partition found at offset %d\n", partitionOffset)
-			return indexNtfs(reader, partitionOffset, nowrite, exact)
-		}
-	}
-
-	return nil, nil
+func indexMbrDisk(reader io.ReaderAt, offset int64, nowrite bool, exact bool) (*diskManifest, error) {
+	chunker := NewMbrDiskChunker(reader, offset, nowrite, exact)
+	return chunker.Dedup()
 }
 
-func indexNtfs(reader io.ReaderAt, offset int64, nowrite bool, exact bool) (*internal.ManifestV1, error) {
-	ntfs := NewNtfsDeduper(reader, offset, nowrite, exact)
-	manifest, err := ntfs.Dedup()
-	if err != nil {
-		return nil, err
-	}
-
-	return manifest, nil
+func indexNtfs(reader io.ReaderAt, offset int64, nowrite bool, exact bool) (*diskManifest, error) {
+	ntfs := NewNtfsChunker(reader, NewFileIndexer("index"), offset, nowrite, exact)
+	return ntfs.Dedup()
 }
 
-func indexOther(file *os.File, offset int64, nowrite bool) (*internal.ManifestV1, error) {
+func indexOther(file *os.File, offset int64, nowrite bool) (*diskManifest, error) {
 	return nil, nil
 }

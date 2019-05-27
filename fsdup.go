@@ -10,6 +10,8 @@ import (
 // TODO [HIGH] Support for any file
 // TODO [MED] Make manifest creation the last step (or part of all steps)
 // TODO [LOW] Sparsify all runs automatically
+// TODO rename "size" to "length"
+// TODO chunkPart.to|from -> offset|length
 
 func exit(code int, message string) {
 	fmt.Println(message)
