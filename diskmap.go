@@ -8,7 +8,7 @@ import (
 	"sort"
 )
 
-type diskManifest struct {
+type diskMap struct {
 	diskMap map[int64]*chunkPart
 	size    int64
 }
@@ -19,14 +19,14 @@ type chunkPart struct {
 	to int64
 }
 
-func NewManifest() *diskManifest {
-	return &diskManifest{
+func NewDiskMap() *diskMap {
+	return &diskMap{
 		diskMap: make(map[int64]*chunkPart, 0),
 	}
 }
 
 // Breakpoints returns a sorted list of breakpoints, useful for sequential disk traversal
-func (m *diskManifest) Breakpoints() []int64 {
+func (m *diskMap) Breakpoints() []int64 {
 	breakpoints := make([]int64, 0, len(m.diskMap))
 	for breakpoint, _ := range m.diskMap {
 		breakpoints = append(breakpoints, breakpoint)
@@ -39,22 +39,28 @@ func (m *diskManifest) Breakpoints() []int64 {
 	return breakpoints
 }
 
-func (m *diskManifest) Add(offset int64, part *chunkPart) {
+func (m *diskMap) Add(offset int64, part *chunkPart) {
 	m.diskMap[offset] = part
 	m.size = maxInt64(m.size, offset + part.to - part.from)
 }
 
-func (m *diskManifest) Get(offset int64) *chunkPart {
+func (m *diskMap) Get(offset int64) *chunkPart {
 	return m.diskMap[offset]
 }
 
-func (m *diskManifest) Merge(other *diskManifest) {
+func (m *diskMap) Merge(other *diskMap) {
 	for offset, part := range other.diskMap {
 		m.diskMap[offset] = part
 	}
 }
 
-func (m *diskManifest) WriteToFile(file string) error {
+func (m *diskMap) MergeAtOffset(offset int64, other *diskMap) {
+	for partOffset, part := range other.diskMap {
+		m.diskMap[offset+partOffset] = part
+	}
+}
+
+func (m *diskMap) WriteToFile(file string) error {
 	// Transform to protobuf struct
 	manifest := &internal.ManifestV1{
 		Size: m.size,
@@ -83,7 +89,7 @@ func (m *diskManifest) WriteToFile(file string) error {
 	return nil
 }
 
-func (m *diskManifest) Print() {
+func (m *diskMap) Print() {
 	for _, offset := range m.Breakpoints() {
 		part := m.diskMap[offset]
 

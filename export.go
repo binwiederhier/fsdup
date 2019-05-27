@@ -54,9 +54,9 @@ func export(manifestFile, outputFile string) {
 		sparse := slice.Checksum == nil
 
 		if sparse {
-			Debugf("%-013d Skipping sparse section of %d bytes\n", offset, slice.Length)
+			Debugf("%013d Skipping sparse section of %d bytes\n", offset, slice.Length)
 		} else {
-			Debugf("%-013d Writing chunk %x, offset %d - %d (size %d)\n", offset, slice.Checksum, slice.Offset, slice.Offset + slice.Length, slice.Length)
+			Debugf("%013d Writing chunk %x, offset %d - %d (size %d)\n", offset, slice.Checksum, slice.Offset, slice.Offset + slice.Length, slice.Length)
 			chunkFile := fmt.Sprintf("index/%x", slice.Checksum)
 
 			chunk, err := os.OpenFile(chunkFile, os.O_RDONLY, 0666)

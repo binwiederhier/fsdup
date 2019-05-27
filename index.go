@@ -2,10 +2,14 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 )
 
 type fileType int
@@ -84,8 +88,33 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 	defer file.Close()
 
 	var index indexer
-	var manifest *diskManifest
+	var manifest *diskMap
 
+	// Determine file size for file or block device
+	size := int64(0)
+
+	stat, err := file.Stat()
+	if err != nil {
+		return errors.New("cannot read file")
+	}
+
+	if stat.Mode() & os.ModeDevice == os.ModeDevice {
+		// TODO This is ugly, but it works.
+
+		out, err := exec.Command("blockdev", "--getsize64", inputFile).Output()
+		if err != nil {
+			return err
+		}
+
+		size, err = strconv.ParseInt(strings.Trim(string(out), "\n"), 10, 64)
+		if err != nil {
+			return err
+		}
+	} else {
+		size = stat.Size()
+	}
+
+	// Probe type to figure out which chunker to pick
 	fileType, err := probeType(file, offset)
 	if err != nil {
 		return err
@@ -101,14 +130,9 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 	case typeNtfs:
 		manifest, err = indexNtfs(file, index, offset, exact)
 	case typeMbrDisk:
-		manifest, err = indexMbrDisk(file, index, offset, exact)
+		manifest, err = indexMbrDisk(file, index, offset, size, exact)
 	default:
-		stat, err := file.Stat()
-		if err != nil {
-			return err
-		}
-
-		manifest, err = indexOther(file, index, offset, stat.Size())
+		manifest, err = indexFixedSize(file, index, offset, size)
 	}
 
 	if err != nil {
@@ -147,17 +171,17 @@ func probeType(reader io.ReaderAt, offset int64) (fileType, error) {
 	return typeUnknown, nil
 }
 
-func indexMbrDisk(reader io.ReaderAt, index indexer, offset int64, exact bool) (*diskManifest, error) {
-	chunker := NewMbrDiskChunker(reader, index, offset, exact)
+func indexMbrDisk(reader io.ReaderAt, index indexer, offset int64, size int64, exact bool) (*diskMap, error) {
+	chunker := NewMbrDiskChunker(reader, index, offset, size, exact)
 	return chunker.Dedup()
 }
 
-func indexNtfs(reader io.ReaderAt, index indexer, offset int64, exact bool) (*diskManifest, error) {
+func indexNtfs(reader io.ReaderAt, index indexer, offset int64, exact bool) (*diskMap, error) {
 	ntfs := NewNtfsChunker(reader, index, offset, exact)
 	return ntfs.Dedup()
 }
 
-func indexOther(reader io.ReaderAt, index indexer, offset int64, size int64) (*diskManifest, error) {
+func indexFixedSize(reader io.ReaderAt, index indexer, offset int64, size int64) (*diskMap, error) {
 	chunker := NewFixedChunker(reader, index, offset, size)
 	return chunker.Dedup()
 }
