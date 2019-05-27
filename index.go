@@ -88,7 +88,7 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 	defer file.Close()
 
 	var index indexer
-	var manifest *diskMap
+	var manifest *diskManifest
 
 	// Determine file size for file or block device
 	size := int64(0)
@@ -171,17 +171,17 @@ func probeType(reader io.ReaderAt, offset int64) (fileType, error) {
 	return typeUnknown, nil
 }
 
-func indexMbrDisk(reader io.ReaderAt, index indexer, offset int64, size int64, exact bool) (*diskMap, error) {
+func indexMbrDisk(reader io.ReaderAt, index indexer, offset int64, size int64, exact bool) (*diskManifest, error) {
 	chunker := NewMbrDiskChunker(reader, index, offset, size, exact)
 	return chunker.Dedup()
 }
 
-func indexNtfs(reader io.ReaderAt, index indexer, offset int64, exact bool) (*diskMap, error) {
+func indexNtfs(reader io.ReaderAt, index indexer, offset int64, exact bool) (*diskManifest, error) {
 	ntfs := NewNtfsChunker(reader, index, offset, exact)
 	return ntfs.Dedup()
 }
 
-func indexFixedSize(reader io.ReaderAt, index indexer, offset int64, size int64) (*diskMap, error) {
+func indexFixedSize(reader io.ReaderAt, index indexer, offset int64, size int64) (*diskManifest, error) {
 	chunker := NewFixedChunker(reader, index, offset, size)
 	return chunker.Dedup()
 }

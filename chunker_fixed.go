@@ -10,7 +10,7 @@ type fixedChunker struct {
 	index indexer
 	start int64
 	sizeInBytes int64
-	skip *diskMap
+	skip *diskManifest
 }
 
 func NewFixedChunker(reader io.ReaderAt, index indexer, offset int64, size int64) *fixedChunker {
@@ -18,7 +18,7 @@ func NewFixedChunker(reader io.ReaderAt, index indexer, offset int64, size int64
 	return NewFixedChunkerWithSkip(reader, index, offset, size, skip)
 }
 
-func NewFixedChunkerWithSkip(reader io.ReaderAt, index indexer, offset int64, size int64, skip *diskMap) *fixedChunker {
+func NewFixedChunkerWithSkip(reader io.ReaderAt, index indexer, offset int64, size int64, skip *diskManifest) *fixedChunker {
 	return &fixedChunker{
 		reader:      reader,
 		index:       index,
@@ -28,7 +28,7 @@ func NewFixedChunkerWithSkip(reader io.ReaderAt, index indexer, offset int64, si
 	}
 }
 
-func (d *fixedChunker) Dedup() (*diskMap, error) {
+func (d *fixedChunker) Dedup() (*diskManifest, error) {
 	out := NewDiskMap()
 
 	breakpoints := d.skip.Breakpoints()

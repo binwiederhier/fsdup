@@ -23,7 +23,7 @@ type mbrDiskChunker struct {
 	start             int64
 	sizeInBytes       int64
 	exact             bool
-	manifest *diskMap
+	manifest *diskManifest
 }
 
 func NewMbrDiskChunker(reader io.ReaderAt, index indexer, offset int64, size int64, exact bool) *mbrDiskChunker {
@@ -37,7 +37,7 @@ func NewMbrDiskChunker(reader io.ReaderAt, index indexer, offset int64, size int
 	}
 }
 
-func (d *mbrDiskChunker) Dedup() (*diskMap, error) {
+func (d *mbrDiskChunker) Dedup() (*diskManifest, error) {
 	println("i am a disk")
 
 	if err := d.dedupNtfsPartitions(); err != nil {
