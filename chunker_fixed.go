@@ -14,7 +14,12 @@ type fixedChunker struct {
 	out *diskManifest
 }
 
-func NewFixedChunker(reader io.ReaderAt, index indexer, offset int64, size int64, skip *diskManifest) *fixedChunker {
+func NewFixedChunker(reader io.ReaderAt, index indexer, offset int64, size int64) *fixedChunker {
+	skip := NewManifest()
+	return NewFixedChunkerWithSkip(reader, index, offset, size, skip)
+}
+
+func NewFixedChunkerWithSkip(reader io.ReaderAt, index indexer, offset int64, size int64, skip *diskManifest) *fixedChunker {
 	return &fixedChunker{
 		reader: reader,
 		index: index,

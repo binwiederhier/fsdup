@@ -111,6 +111,10 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 		manifest, err = indexOther(file, index, offset, stat.Size())
 	}
 
+	if err != nil {
+		return err
+	}
+
 	if debug {
 		Debugf("Manifest:\n")
 		manifest.Print()
@@ -154,8 +158,6 @@ func indexNtfs(reader io.ReaderAt, index indexer, offset int64, exact bool) (*di
 }
 
 func indexOther(reader io.ReaderAt, index indexer, offset int64, size int64) (*diskManifest, error) {
-	skip := NewManifest()
-	chunker := NewFixedChunker(reader, index, offset, size, skip)
-
+	chunker := NewFixedChunker(reader, index, offset, size)
 	return chunker.Dedup()
 }

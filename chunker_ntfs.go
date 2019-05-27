@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -578,140 +577,13 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 }
 
 func (d *ntfsChunker) dedupRest() error {
+	chunker := NewFixedChunkerWithSkip(d.reader, d.index, d.start, d.sizeInBytes, d.manifest)
 
-
-	// TODO replace this with diskManifest, then re-use in index.go for disk chunking
-
-
-
-	// Sort breakpoints to prepare for sequential disk traversal
-	breakpoints := d.manifest.Breakpoints()
-
-	// We have determined the breakpoints for the FILE entries.
-	// Now, we'll process the non-FILE data to fill in the gaps.
-
-	currentOffset := int64(0)
-	breakpointIndex := 0
-	breakpoint := int64(0)
-
-	chunk := NewChunk()
-	buffer := make([]byte, chunkSizeMaxBytes)
-
-	for currentOffset < d.sizeInBytes {
-		hasNextBreakpoint := breakpointIndex < len(breakpoints)
-
-		if hasNextBreakpoint {
-			// At this point, we figure out if the space from the current offset to the
-			// next breakpoint will fit in a full chunk.
-
-			breakpoint = breakpoints[breakpointIndex]
-			bytesToBreakpoint := breakpoint - currentOffset
-
-			if bytesToBreakpoint > chunkSizeMaxBytes {
-				// We can fill an entire chunk, because there are enough bytes to the next breakpoint
-
-				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.sizeInBytes)
-
-				bytesRead, err := d.reader.ReadAt(buffer, d.start + currentOffset)
-				if err != nil {
-					return err
-				} else if bytesRead != chunkSizeMaxBytes {
-					return fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
-				}
-
-				chunk.Reset()
-				chunk.Write(buffer[:bytesRead])
-
-				if err := d.index.WriteChunk(chunk); err != nil {
-					return err
-				}
-
-				Debugf("offset %d - %d, NEW chunk %x, size %d\n",
-					currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
-
-				d.manifest.Add(currentOffset, &chunkPart{
-					checksum: chunk.Checksum(),
-					from: 0,
-					to: chunk.Size(),
-				})
-
-				currentOffset = chunkEndOffset
-			} else {
-				// There are NOT enough bytes to the next breakpoint to fill an entire chunk
-
-				if bytesToBreakpoint > 0 {
-					// Create and emit a chunk from the current position to the breakpoint.
-					// This may create small chunks and is inefficient.
-					// FIXME this should just buffer the current chunk and not emit is right away. It should FILL UP a chunk later!
-
-					bytesRead, err := d.reader.ReadAt(buffer[:bytesToBreakpoint], d.start + currentOffset)
-					if err != nil {
-						return err
-					} else if int64(bytesRead) != bytesToBreakpoint {
-						return fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
-					}
-
-					chunk.Reset()
-					chunk.Write(buffer[:bytesRead])
-
-					if err := d.index.WriteChunk(chunk); err != nil {
-						return err
-					}
-
-					d.manifest.Add(currentOffset, &chunkPart{
-						checksum: chunk.Checksum(),
-						from: 0,
-						to: chunk.Size(),
-					})
-
-					Debugf("offset %d - %d, NEW2 chunk %x, size %d\n",
-						currentOffset, currentOffset + bytesToBreakpoint, chunk.Checksum(), chunk.Size())
-
-					currentOffset += bytesToBreakpoint
-				}
-
-				// Now we are AT the breakpoint.
-				// Simply add this entry to the manifest.
-
-				part := d.manifest.Get(breakpoint)
-				partSize := part.to - part.from
-
-				Debugf("offset %d - %d, size %d  -> FILE chunk %x, offset %d - %d\n",
-					currentOffset, currentOffset + partSize, partSize, part.checksum, part.from, part.to)
-
-				currentOffset += partSize
-				breakpointIndex++
-			}
-		} else {
-			chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.sizeInBytes)
-			chunkSize := chunkEndOffset - currentOffset
-
-			bytesRead, err := d.reader.ReadAt(buffer[:chunkSize], d.start + currentOffset)
-			if err != nil {
-				panic(err)
-			} else if int64(bytesRead) != chunkSize {
-				panic(fmt.Errorf("cannot read bytes from disk, %d read\n", bytesRead))
-			}
-
-			chunk.Reset()
-			chunk.Write(buffer[:bytesRead])
-
-			if err := d.index.WriteChunk(chunk); err != nil {
-				return err
-			}
-
-			Debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
-				currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
-
-			d.manifest.Add(currentOffset, &chunkPart{
-				checksum: chunk.Checksum(),
-				from: 0,
-				to: chunk.Size(),
-			})
-
-			currentOffset = chunkEndOffset
-		}
+	gapManifest, err := chunker.Dedup()
+	if err != nil {
+		return err
 	}
 
+	d.manifest.Merge(gapManifest)
 	return nil
 }
