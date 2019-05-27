@@ -75,7 +75,6 @@ type ntfsChunker struct {
 	reader            io.ReaderAt
 	start             int64
 	sizeInBytes       int64
-	nowrite           bool
 	exact             bool
 	totalSectors      int64
 	sectorSize        int64
@@ -106,12 +105,11 @@ type run struct {
 
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
-func NewNtfsChunker(reader io.ReaderAt, indexer indexer, offset int64, nowrite bool, exact bool) *ntfsChunker {
+func NewNtfsChunker(reader io.ReaderAt, indexer indexer, offset int64, exact bool) *ntfsChunker {
 	return &ntfsChunker{
 		reader:   reader,
 		index:    indexer,
 		start:    offset,
-		nowrite:  nowrite,
 		exact:    exact,
 		manifest: NewManifest(),
 	}

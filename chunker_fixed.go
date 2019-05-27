@@ -1,37 +1,34 @@
 package main
-/*
+
 import (
 	"fmt"
-	"heckel.io/fsdup/internal"
-	"os"
+	"io"
 )
 
 type fixedChunker struct {
-	size int64
+	reader io.ReaderAt
+	index indexer
+	start int64
+	sizeInBytes int64
 	skip *diskManifest
 	out *diskManifest
 }
 
-func NewFixedChunker(size int64, skip *diskManifest) *fixedChunker {
+func NewFixedChunker(reader io.ReaderAt, index indexer, offset int64, size int64, skip *diskManifest) *fixedChunker {
 	return &fixedChunker{
-		size: size,
+		reader: reader,
+		index: index,
+		start: offset,
+		sizeInBytes: size,
 		skip: skip,
 		out: NewManifest(),
 	}
 }
 
 func (d *fixedChunker) Dedup() (*diskManifest, error) {
+	out := NewManifest()
 
-
-	// TODO replace this with diskManifest, then re-use in index.go for disk chunking
-
-
-
-	// Sort breakpoints to prepare for sequential disk traversal
 	breakpoints := d.skip.Breakpoints()
-
-	// We have determined the breakpoints for the FILE entries.
-	// Now, we'll process the non-FILE data to fill in the gaps.
 
 	currentOffset := int64(0)
 	breakpointIndex := 0
@@ -40,9 +37,7 @@ func (d *fixedChunker) Dedup() (*diskManifest, error) {
 	chunk := NewChunk()
 	buffer := make([]byte, chunkSizeMaxBytes)
 
-	os.Mkdir("index", 0770)
-
-	for currentOffset < d.size {
+	for currentOffset < d.sizeInBytes {
 		hasNextBreakpoint := breakpointIndex < len(breakpoints)
 
 		if hasNextBreakpoint {
@@ -55,7 +50,7 @@ func (d *fixedChunker) Dedup() (*diskManifest, error) {
 			if bytesToBreakpoint > chunkSizeMaxBytes {
 				// We can fill an entire chunk, because there are enough bytes to the next breakpoint
 
-				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.size)
+				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.sizeInBytes)
 
 				bytesRead, err := d.reader.ReadAt(buffer, d.start + currentOffset)
 				if err != nil {
@@ -67,21 +62,17 @@ func (d *fixedChunker) Dedup() (*diskManifest, error) {
 				chunk.Reset()
 				chunk.Write(buffer[:bytesRead])
 
-				if _, ok := d.chunkMap[chunk.ChecksumString()]; !ok {
-					if err := d.writeChunkFile(chunk); err != nil {
-						return err
-					}
-
-					d.chunkMap[chunk.ChecksumString()] = true
+				if err := d.index.WriteChunk(chunk); err != nil {
+					return nil, err
 				}
 
 				Debugf("offset %d - %d, NEW chunk %x, size %d\n",
 					currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
 
-				d.manifest.Slices = append(d.manifest.Slices, &internal.Slice{
-					Checksum: chunk.Checksum(),
-					Offset: 0,
-					Length: chunk.Size(),
+				out.Add(currentOffset, &chunkPart{
+					checksum: chunk.Checksum(),
+					from: 0,
+					to: chunk.Size(),
 				})
 
 				currentOffset = chunkEndOffset
@@ -95,26 +86,22 @@ func (d *fixedChunker) Dedup() (*diskManifest, error) {
 
 					bytesRead, err := d.reader.ReadAt(buffer[:bytesToBreakpoint], d.start + currentOffset)
 					if err != nil {
-						return err
+						return nil, err
 					} else if int64(bytesRead) != bytesToBreakpoint {
-						return fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
+						return nil, fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
 					}
 
 					chunk.Reset()
 					chunk.Write(buffer[:bytesRead])
 
-					if _, ok := d.chunkMap[chunk.ChecksumString()]; !ok {
-						if err := d.writeChunkFile(chunk); err != nil {
-							return err
-						}
-
-						d.chunkMap[chunk.ChecksumString()] = true
+					if err := d.index.WriteChunk(chunk); err != nil {
+						return nil, err
 					}
 
-					d.manifest.Slices = append(d.manifest.Slices, &internal.Slice{
-						Checksum: chunk.Checksum(),
-						Offset: 0,
-						Length: chunk.Size(),
+					out.Add(currentOffset, &chunkPart{
+						checksum: chunk.Checksum(),
+						from: 0,
+						to: chunk.Size(),
 					})
 
 					Debugf("offset %d - %d, NEW2 chunk %x, size %d\n",
@@ -126,17 +113,11 @@ func (d *fixedChunker) Dedup() (*diskManifest, error) {
 				// Now we are AT the breakpoint.
 				// Simply add this entry to the manifest.
 
-				part := d.diskMap[breakpoint]
+				part := d.skip.Get(breakpoint)
 				partSize := part.to - part.from
 
 				Debugf("offset %d - %d, size %d  -> FILE chunk %x, offset %d - %d\n",
 					currentOffset, currentOffset + partSize, partSize, part.checksum, part.from, part.to)
-
-				d.manifest.Slices = append(d.manifest.Slices, &internal.Slice{
-					Checksum: part.checksum,
-					Offset: part.from,
-					Length: partSize,
-				})
 
 				currentOffset += partSize
 				breakpointIndex++
@@ -155,27 +136,22 @@ func (d *fixedChunker) Dedup() (*diskManifest, error) {
 			chunk.Reset()
 			chunk.Write(buffer[:bytesRead])
 
-			if _, ok := d.chunkMap[chunk.ChecksumString()]; !ok {
-				if err := d.writeChunkFile(chunk); err != nil {
-					return err
-				}
-
-				d.chunkMap[chunk.ChecksumString()] = true
+			if err := d.index.WriteChunk(chunk); err != nil {
+				return nil, err
 			}
 
 			Debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
 				currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
 
-			d.manifest.Slices = append(d.manifest.Slices, &internal.Slice{
-				Checksum: chunk.Checksum(),
-				Offset: 0,
-				Length: chunk.Size(),
+			out.Add(currentOffset, &chunkPart{
+				checksum: chunk.Checksum(),
+				from: 0,
+				to: chunk.Size(),
 			})
 
 			currentOffset = chunkEndOffset
 		}
 	}
 
-	return nil
+	return out, nil
 }
-*/

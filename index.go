@@ -24,9 +24,21 @@ type indexer interface {
 	WriteChunk(chunk *fixedChunk) error
 }
 
+type dummyIndexer struct {
+
+}
+
 type fileIndexer struct {
 	root     string
 	chunkMap map[string]bool
+}
+
+func NewDummyIndexer() *dummyIndexer {
+	return &dummyIndexer{}
+}
+
+func (idx *dummyIndexer) WriteChunk(chunk *fixedChunk) error {
+	return nil
 }
 
 func NewFileIndexer(root string) *fileIndexer {
@@ -71,6 +83,7 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 
 	defer file.Close()
 
+	var index indexer
 	var manifest *diskManifest
 
 	fileType, err := probeType(file, offset)
@@ -78,13 +91,24 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 		return err
 	}
 
+	if nowrite {
+		index = NewDummyIndexer()
+	} else {
+		index = NewFileIndexer("index")
+	}
+
 	switch fileType {
 	case typeNtfs:
-		manifest, err = indexNtfs(file, offset, nowrite, exact)
+		manifest, err = indexNtfs(file, index, offset, exact)
 	case typeMbrDisk:
-		manifest, err = indexMbrDisk(file, offset, nowrite, exact)
+		manifest, err = indexMbrDisk(file, index, offset, exact)
 	default:
-		manifest, err = indexOther(file, offset, nowrite)
+		stat, err := file.Stat()
+		if err != nil {
+			return err
+		}
+
+		manifest, err = indexOther(file, index, offset, stat.Size())
 	}
 
 	if debug {
@@ -119,16 +143,19 @@ func probeType(reader io.ReaderAt, offset int64) (fileType, error) {
 	return typeUnknown, nil
 }
 
-func indexMbrDisk(reader io.ReaderAt, offset int64, nowrite bool, exact bool) (*diskManifest, error) {
-	chunker := NewMbrDiskChunker(reader, offset, nowrite, exact)
+func indexMbrDisk(reader io.ReaderAt, index indexer, offset int64, exact bool) (*diskManifest, error) {
+	chunker := NewMbrDiskChunker(reader, index, offset, exact)
 	return chunker.Dedup()
 }
 
-func indexNtfs(reader io.ReaderAt, offset int64, nowrite bool, exact bool) (*diskManifest, error) {
-	ntfs := NewNtfsChunker(reader, NewFileIndexer("index"), offset, nowrite, exact)
+func indexNtfs(reader io.ReaderAt, index indexer, offset int64, exact bool) (*diskManifest, error) {
+	ntfs := NewNtfsChunker(reader, index, offset, exact)
 	return ntfs.Dedup()
 }
 
-func indexOther(file *os.File, offset int64, nowrite bool) (*diskManifest, error) {
-	return nil, nil
+func indexOther(reader io.ReaderAt, index indexer, offset int64, size int64) (*diskManifest, error) {
+	skip := NewManifest()
+	chunker := NewFixedChunker(reader, index, offset, size, skip)
+
+	return chunker.Dedup()
 }

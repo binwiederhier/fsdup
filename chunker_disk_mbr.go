@@ -19,17 +19,17 @@ const (
 
 type mbrDiskChunker struct {
 	reader            io.ReaderAt
+	index indexer
 	start             int64
 	sizeInBytes       int64
-	nowrite           bool
 	exact             bool
 }
 
-func NewMbrDiskChunker(reader io.ReaderAt, offset int64, nowrite bool, exact bool) *mbrDiskChunker {
+func NewMbrDiskChunker(reader io.ReaderAt, index indexer, offset int64, exact bool) *mbrDiskChunker {
 	return &mbrDiskChunker{
 		reader: reader,
+		index: index,
 		start: offset,
-		nowrite: nowrite,
 		exact: exact,
 	}
 }
@@ -63,7 +63,7 @@ func (d *mbrDiskChunker) Dedup() (*diskManifest, error) {
 
 		if partitionType == typeNtfs {
 			Debugf("NTFS partition found at offset %d\n", partitionOffset)
-			ntfs := NewNtfsChunker(d.reader, NewFileIndexer("root"), d.start, d.nowrite, d.exact)
+			ntfs := NewNtfsChunker(d.reader, d.index, d.start, d.exact)
 			manifest, err := ntfs.Dedup()
 			if err != nil {
 				return nil, err
