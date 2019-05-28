@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/samalba/buse-go/buse"
 	"log"
 	"os"
