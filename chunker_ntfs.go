@@ -8,7 +8,7 @@ import (
 
 const (
 	chunkSizeMaxBytes      = 32 * 1024 * 1024
-	dedupFileSizeMinBytes  = 4 * 1024 * 1024
+	dedupFileSizeMinBytes  = 128 * 1024
 
 	// NTFS boot sector (absolute aka relative to file system start)
 	ntfsBootRecordSize              = 512
@@ -75,6 +75,7 @@ type ntfsChunker struct {
 	start             int64
 	sizeInBytes       int64
 	exact             bool
+	minSize           int64
 	totalSectors      int64
 	sectorSize        int64
 	sectorsPerCluster int64
@@ -104,13 +105,14 @@ type run struct {
 
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
-func NewNtfsChunker(reader io.ReaderAt, indexer indexer, offset int64, exact bool) *ntfsChunker {
+func NewNtfsChunker(reader io.ReaderAt, indexer indexer, offset int64, exact bool, minSize int64) *ntfsChunker {
 	return &ntfsChunker{
 		reader:   reader,
 		index:    indexer,
 		start:    offset,
 		exact:    exact,
-		manifest: NewDiskMap(),
+		minSize:  minSize,
+		manifest: NewManifest(),
 	}
 }
 
@@ -297,7 +299,7 @@ func (d *ntfsChunker) dedupFiles(mft *entry) error {
 				continue
 			}
 
-			if entry.dataSize < dedupFileSizeMinBytes {
+			if entry.dataSize < d.minSize {
 				offset += entry.allocatedSize
 				Debugf("Entry at offset %d skipped: %d byte(s) is too small\n", offset, entry.dataSize)
 				continue

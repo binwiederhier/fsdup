@@ -19,7 +19,7 @@ type chunkPart struct {
 	to int64
 }
 
-func NewDiskMap() *diskManifest {
+func NewManifest() *diskManifest {
 	return &diskManifest{
 		size: 0,
 		diskMap: make(map[int64]*chunkPart, 0),
