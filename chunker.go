@@ -9,32 +9,32 @@ type chunker interface {
 	Dedup() (*manifest, error)
 }
 
-type fixedChunk struct {
+type chunk struct {
 	size int64
 	data []byte
 	checksum []byte
 }
 
-func NewChunk() *fixedChunk {
-	return &fixedChunk{
+func NewChunk() *chunk {
+	return &chunk{
 		size: 0,
 		data: make([]byte, chunkSizeMaxBytes),
 		checksum: nil,
 	}
 }
 
-func (c *fixedChunk) Reset() {
+func (c *chunk) Reset() {
 	c.size = 0
 	c.checksum = nil
 }
 
-func (c *fixedChunk) Write(data []byte) {
+func (c *chunk) Write(data []byte) {
 	copy(c.data[c.size:c.size+int64(len(data))], data)
 	c.checksum = nil // reset!
 	c.size += int64(len(data))
 }
 
-func (c *fixedChunk) Checksum() []byte {
+func (c *chunk) Checksum() []byte {
 	if c.checksum == nil {
 		checksum := blake2b.Sum256(c.data[:c.size])
 		c.checksum = checksum[:]
@@ -43,23 +43,23 @@ func (c *fixedChunk) Checksum() []byte {
 	return c.checksum
 }
 
-func (c *fixedChunk) ChecksumString() string {
+func (c *chunk) ChecksumString() string {
 	return fmt.Sprintf("%x", c.Checksum())
 }
 
-func (c *fixedChunk) Data() []byte {
+func (c *chunk) Data() []byte {
 	return c.data[:c.size]
 }
 
-func (c *fixedChunk) Size() int64 {
+func (c *chunk) Size() int64 {
 	return c.size
 }
 
-func (c *fixedChunk) Remaining() int64 {
+func (c *chunk) Remaining() int64 {
 	return int64(len(c.data)) - c.size
 }
 
-func (c *fixedChunk) Full() bool {
+func (c *chunk) Full() bool {
 	return c.Remaining() <= 0
 }
 

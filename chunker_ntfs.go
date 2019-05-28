@@ -80,7 +80,7 @@ type ntfsChunker struct {
 	sectorSize        int64
 	sectorsPerCluster int64
 	clusterSize       int64
-	index             chunkIndex
+	store             chunkStore
 	manifest          *manifest
 }
 
@@ -105,10 +105,10 @@ type run struct {
 
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
-func NewNtfsChunker(reader io.ReaderAt, indexer chunkIndex, offset int64, exact bool, minSize int64) *ntfsChunker {
+func NewNtfsChunker(reader io.ReaderAt, store chunkStore, offset int64, exact bool, minSize int64) *ntfsChunker {
 	return &ntfsChunker{
 		reader:   reader,
-		index:    indexer,
+		store:    store,
 		start:    offset,
 		exact:    exact,
 		minSize:  minSize,
@@ -457,7 +457,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 					parts = make(map[int64]*chunkPart, 0) // clear!
 
 					// Write chunk
-					if err := d.index.WriteChunk(chunk); err != nil {
+					if err := d.store.WriteChunk(chunk); err != nil {
 						return err
 					}
 
@@ -480,7 +480,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 			d.manifest.Add(partOffset, part)
 		}
 
-		if err := d.index.WriteChunk(chunk); err != nil {
+		if err := d.store.WriteChunk(chunk); err != nil {
 			return err
 		}
 	}
@@ -579,7 +579,7 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 }
 
 func (d *ntfsChunker) dedupRest() error {
-	chunker := NewFixedChunkerWithSkip(d.reader, d.index, d.start, d.sizeInBytes, d.manifest)
+	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.sizeInBytes, d.manifest)
 
 	gapManifest, err := chunker.Dedup()
 	if err != nil {

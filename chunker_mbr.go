@@ -19,7 +19,7 @@ const (
 
 type mbrDiskChunker struct {
 	reader   io.ReaderAt
-	index    chunkIndex
+	store    chunkStore
 	start    int64
 	size     int64
 	exact    bool
@@ -27,10 +27,10 @@ type mbrDiskChunker struct {
 	manifest *manifest
 }
 
-func NewMbrDiskChunker(reader io.ReaderAt, index chunkIndex, offset int64, size int64, exact bool, minSize int64) *mbrDiskChunker {
+func NewMbrDiskChunker(reader io.ReaderAt, store chunkStore, offset int64, size int64, exact bool, minSize int64) *mbrDiskChunker {
 	return &mbrDiskChunker{
 		reader:   reader,
-		index:    index,
+		store:    store,
 		start:    offset,
 		size:     size,
 		exact:    exact,
@@ -79,7 +79,7 @@ func (d *mbrDiskChunker) dedupNtfsPartitions() error {
 
 		if partitionType == typeNtfs {
 			Debugf("NTFS partition found at offset %d\n", partitionOffset)
-			ntfs := NewNtfsChunker(d.reader, d.index, partitionOffset, d.exact, d.minSize)
+			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.minSize)
 			manifest, err := ntfs.Dedup()
 			if err != nil {
 				return err
@@ -93,7 +93,7 @@ func (d *mbrDiskChunker) dedupNtfsPartitions() error {
 }
 
 func (d *mbrDiskChunker) dedupRest() error {
-	chunker := NewFixedChunkerWithSkip(d.reader, d.index, d.start, d.size, d.manifest)
+	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.size, d.manifest)
 
 	gapManifest, err := chunker.Dedup()
 	if err != nil {

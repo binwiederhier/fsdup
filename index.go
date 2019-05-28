@@ -22,10 +22,6 @@ const (
 	probeTypeBufferLength = 512
 )
 
-type chunkIndex interface {
-	WriteChunk(chunk *fixedChunk) error
-}
-
 func index(inputFile string, manifestFile string, offset int64, nowrite bool, exact bool, minSize int64) error {
 	file, err := os.Open(inputFile)
 	if err != nil {
@@ -35,7 +31,7 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 	defer file.Close()
 
 	var chunker chunker
-	var index chunkIndex
+	var store chunkStore
 
 	// Determine file size for file or block device
 	size := int64(0)
@@ -68,18 +64,18 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 	}
 
 	if nowrite {
-		index = NewDummyIndex()
+		store = NewDummyStore()
 	} else {
-		index = NewFileIndex("index")
+		store = NewFileStore("index")
 	}
 
 	switch fileType {
 	case typeNtfs:
-		chunker = NewNtfsChunker(file, index, offset, exact, minSize)
+		chunker = NewNtfsChunker(file, store, offset, exact, minSize)
 	case typeMbrDisk:
-		chunker = NewMbrDiskChunker(file, index, offset, size, exact, minSize)
+		chunker = NewMbrDiskChunker(file, store, offset, size, exact, minSize)
 	default:
-		chunker = NewFixedChunker(file, index, offset, size)
+		chunker = NewFixedChunker(file, store, offset, size)
 	}
 
 	manifest, err := chunker.Dedup()

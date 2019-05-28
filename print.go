@@ -9,7 +9,7 @@ func printManifestFile(manifestFile string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	manifest.Print()
 	return nil
 }
@@ -21,26 +21,27 @@ func printManifestStats(manifestFiles []string) error {
 	chunkMap := make(map[string]int64, 0)
 
 	for _, manifestFile := range manifestFiles {
-		manifest, err := readManifestFromFile(manifestFile)
+		manifest, err := NewManifestFromFile(manifestFile)
 		if err != nil {
 			return err
 		}
 
-		totalImageSize += manifest.Size
+		totalImageSize += manifest.Size()
 
-		for _, slice := range manifest.Slices {
-			checksumStr := fmt.Sprintf("%x", slice.Checksum)
+		for _, breakpoint := range manifest.Breakpoints() {
+			part := manifest.Get(breakpoint)
+			checksumStr := fmt.Sprintf("%x", part.checksum)
 
 			// Ignore sparse sections
-			if slice.Checksum == nil {
+			if part.checksum == nil {
 				continue
 			}
 
 			// This is a weird way to get the chunk size, but hey ...
 			if _, ok := chunkMap[checksumStr]; !ok {
-				chunkMap[checksumStr] = slice.Offset + slice.Length
+				chunkMap[checksumStr] = part.to
 			} else {
-				chunkMap[checksumStr] = maxInt64(chunkMap[checksumStr], slice.Offset + slice.Length)
+				chunkMap[checksumStr] = maxInt64(chunkMap[checksumStr], part.to)
 			}
 		}
 	}

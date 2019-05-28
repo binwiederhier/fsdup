@@ -6,21 +6,21 @@ import (
 	"os"
 )
 
-type fileChunkIndex struct {
+type fileChunkStore struct {
 	root     string
 	chunkMap map[string]bool
 }
 
-func NewFileIndex(root string) *fileChunkIndex {
+func NewFileStore(root string) *fileChunkStore {
 	os.Mkdir(root, 0770)
 
-	return &fileChunkIndex{
+	return &fileChunkStore{
 		root:     root,
 		chunkMap: make(map[string]bool, 0),
 	}
 }
 
-func (idx *fileChunkIndex) WriteChunk(chunk *fixedChunk) error {
+func (idx *fileChunkStore) WriteChunk(chunk *chunk) error {
 	if _, ok := idx.chunkMap[chunk.ChecksumString()]; !ok {
 		if err := idx.writeChunkFile(chunk); err != nil {
 			return err
@@ -32,7 +32,7 @@ func (idx *fileChunkIndex) WriteChunk(chunk *fixedChunk) error {
 	return nil
 }
 
-func (idx *fileChunkIndex) writeChunkFile(chunk *fixedChunk) error {
+func (idx *fileChunkStore) writeChunkFile(chunk *chunk) error {
 	chunkFile := fmt.Sprintf("%s/%x", idx.root, chunk.Checksum())
 
 	if _, err := os.Stat(chunkFile); err != nil {

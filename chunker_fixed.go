@@ -7,21 +7,21 @@ import (
 
 type fixedChunker struct {
 	reader      io.ReaderAt
-	index       chunkIndex
+	store       chunkStore
 	start       int64
 	sizeInBytes int64
 	skip        *manifest
 }
 
-func NewFixedChunker(reader io.ReaderAt, index chunkIndex, offset int64, size int64) *fixedChunker {
+func NewFixedChunker(reader io.ReaderAt, index chunkStore, offset int64, size int64) *fixedChunker {
 	skip := NewManifest()
 	return NewFixedChunkerWithSkip(reader, index, offset, size, skip)
 }
 
-func NewFixedChunkerWithSkip(reader io.ReaderAt, index chunkIndex, offset int64, size int64, skip *manifest) *fixedChunker {
+func NewFixedChunkerWithSkip(reader io.ReaderAt, store chunkStore, offset int64, size int64, skip *manifest) *fixedChunker {
 	return &fixedChunker{
 		reader:      reader,
-		index:       index,
+		store:       store,
 		start:       offset,
 		sizeInBytes: size,
 		skip:        skip,
@@ -65,7 +65,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				chunk.Reset()
 				chunk.Write(buffer[:bytesRead])
 
-				if err := d.index.WriteChunk(chunk); err != nil {
+				if err := d.store.WriteChunk(chunk); err != nil {
 					return nil, err
 				}
 
@@ -97,7 +97,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 					chunk.Reset()
 					chunk.Write(buffer[:bytesRead])
 
-					if err := d.index.WriteChunk(chunk); err != nil {
+					if err := d.store.WriteChunk(chunk); err != nil {
 						return nil, err
 					}
 
@@ -139,7 +139,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 			chunk.Reset()
 			chunk.Write(buffer[:bytesRead])
 
-			if err := d.index.WriteChunk(chunk); err != nil {
+			if err := d.store.WriteChunk(chunk); err != nil {
 				return nil, err
 			}
 
