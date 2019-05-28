@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -33,40 +32,22 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 	var chunker chunker
 	var store chunkStore
 
-	// Determine file size for file or block device
-	size := int64(0)
-
-	stat, err := file.Stat()
+	size, err := readFileSize(file, inputFile)
 	if err != nil {
-		return errors.New("cannot read file")
+		return err
 	}
 
-	if stat.Mode() & os.ModeDevice == os.ModeDevice {
-		// TODO This is ugly, but it works.
-
-		out, err := exec.Command("blockdev", "--getsize64", inputFile).Output()
-		if err != nil {
-			return err
-		}
-
-		size, err = strconv.ParseInt(strings.Trim(string(out), "\n"), 10, 64)
-		if err != nil {
-			return err
-		}
+	// Pick chunk store
+	if nowrite {
+		store = NewDummyStore()
 	} else {
-		size = stat.Size()
+		store = NewFileStore("index")
 	}
 
 	// Probe type to figure out which chunker to pick
 	fileType, err := probeType(file, offset)
 	if err != nil {
 		return err
-	}
-
-	if nowrite {
-		store = NewDummyStore()
-	} else {
-		store = NewFileStore("index")
 	}
 
 	switch fileType {
@@ -93,6 +74,32 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 	}
 
 	return nil
+}
+
+// Determine file size for file or block device
+func readFileSize(file *os.File, inputFile string) (int64, error) {
+	stat, err := file.Stat()
+	if err != nil {
+		return 0, err
+	}
+
+	if stat.Mode() & os.ModeDevice == os.ModeDevice {
+		// TODO This is ugly, but it works.
+
+		out, err := exec.Command("blockdev", "--getsize64", inputFile).Output()
+		if err != nil {
+			return 0, err
+		}
+
+		size, err := strconv.ParseInt(strings.Trim(string(out), "\n"), 10, 64)
+		if err != nil {
+			return 0, err
+		}
+
+		return size, nil
+	} else {
+		return stat.Size(), nil
+	}
 }
 
 func probeType(reader io.ReaderAt, offset int64) (fileType, error) {
