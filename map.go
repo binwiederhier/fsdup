@@ -2,24 +2,31 @@ package main
 
 import (
 	"fmt"
-	"github.com/golang/protobuf/proto"
 	"github.com/samalba/buse-go/buse"
-	"heckel.io/fsdup/pb"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
 )
 
-type localManifestImage struct {
-	manifest *pb.ManifestV1
+type manifestImage struct {
+	manifest *manifest
+	breakpoints []int64
 }
 
-func (d *localManifestImage) ReadAt(p []byte, off uint) error {
+func NewManifestImage(manifest *manifest) *manifestImage {
+	return &manifestImage{
+		manifest: manifest,
+		breakpoints: manifest.Breakpoints(), // cache !
+	}
+}
+
+func (d *manifestImage) ReadAt(p []byte, off uint) error {
 	log.Printf("[localManifestImage] READ offset:%d len:%d\n", off, len(p))
 
 	// Find from/to chunk
 	// FIXME this is inefficient
+/*
+	d.manifest.
 
 	chunkOffset := int64(0)
 	fromChunkIndex := -1
@@ -90,51 +97,46 @@ func (d *localManifestImage) ReadAt(p []byte, off uint) error {
 
 		pFrom += int64(read)
 	}
-
+*/
 	log.Printf("[localManifestImage] READ offset:%d len:%d\n", off, len(p))
 	return nil
 }
 
-func (d *localManifestImage) WriteAt(p []byte, off uint) error {
+func (d *manifestImage) WriteAt(p []byte, off uint) error {
 	//d.file.WriteAt(p, int64(off))
 	// TODO NOP
 	log.Printf("[localManifestImage] WRITE offset:%d len:%d\n", off, len(p))
 	return nil
 }
 
-func (d *localManifestImage) Disconnect() {
+func (d *manifestImage) Disconnect() {
 	log.Println("[localManifestImage] DISCONNECT")
 }
 
-func (d *localManifestImage) Flush() error {
+func (d *manifestImage) Flush() error {
 	log.Println("[localManifestImage] FLUSH")
 	return nil
 }
 
-func (d *localManifestImage) Trim(off, length uint) error {
+func (d *manifestImage) Trim(off, length uint) error {
 	log.Printf("[localManifestImage] TRIM offset:%d len:%d\n", off, length)
 	return nil
 }
 
-func mapDevice(manifestFile string) {
-	in, err := ioutil.ReadFile(manifestFile)
+func mapDevice(manifestFile string) error {
+	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
-		log.Fatalln("Error reading file:", err)
-	}
-	manifest := &pb.ManifestV1{}
-	if err := proto.Unmarshal(in, manifest); err != nil {
-		log.Fatalln("Failed to parse address book:", err)
+		return err
 	}
 
-	localManifestImage := &localManifestImage{
-		manifest: manifest,
+	Debugf("Creating device /dev/nbd0 ...\n")
+
+	image := NewManifestImage(manifest)
+	device, err := buse.CreateDevice("/dev/nbd0", uint(manifest.Size()), image)
+	if err != nil {
+		return err
 	}
 
-	device, err := buse.CreateDevice("/dev/nbd0", uint(manifest.Size), localManifestImage)
-	if err != nil {
-		fmt.Printf("Cannot create device: %s\n", err)
-		os.Exit(1)
-	}
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt)
 	go func() {
@@ -144,8 +146,12 @@ func mapDevice(manifestFile string) {
 			log.Println("Buse device stopped gracefully.")
 		}
 	}()
+
 	<-sig
+
 	// Received SIGTERM, cleanup
-	fmt.Println("SIGINT, disconnecting...")
+	Debugf("SIGINT, disconnecting...\n")
 	device.Disconnect()
+
+	return nil
 }
