@@ -95,7 +95,9 @@ func main() {
 		manifest := exportCommand.Arg(0)
 		outfile := exportCommand.Arg(1)
 
-		export(manifest, outfile)
+		if err := export(manifest, outfile); err != nil {
+			exit(2, "Cannot export file: " + string(err.Error()))
+		}
 	case "print":
 		printCommand.Parse(os.Args[2:])
 

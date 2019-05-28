@@ -10,4 +10,6 @@ message Slice {
 message ManifestV1 {
     int64 Size = 1;
     repeated Slice Slices = 2;
+    string Comment = 3;
+    int64 ChunkMaxSize = 4;
 }

@@ -2,79 +2,56 @@ package main
 
 import (
 	"fmt"
-	"github.com/golang/protobuf/proto"
-	"heckel.io/fsdup/pb"
-	"io/ioutil"
 	"log"
 	"os"
 )
 
-func export(manifestFile, outputFile string) {
-	in, err := ioutil.ReadFile(manifestFile)
+func export(manifestFile, outputFile string) error {
+	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
-		log.Fatalln("Error reading file:", err)
+		return err
 	}
 
-	manifest := &pb.ManifestV1{}
-	if err := proto.Unmarshal(in, manifest); err != nil {
-		log.Fatalln("Failed to parse address book:", err)
-	}
-
-	// Wipe output file (truncate to zero, then to target size)
-	if _, err := os.Stat(outputFile); err != nil {
-		file, err := os.Create(outputFile)
-		if err != nil {
-			log.Fatalln("Cannot create file:", err)
-		}
-
-		err = file.Close()
-		if err != nil {
-			log.Fatalln("Cannot close file:", err)
-		}
-	} else {
-		if err := os.Truncate(outputFile, 0); err != nil {
-			log.Fatalln("Failed to truncate output file:", err)
-		}
-	}
-
-	if err := os.Truncate(outputFile, manifest.Size); err != nil {
-		log.Fatalln("Failed to truncate output file to correct size:", err)
+	if err := truncateExportFile(outputFile, manifest.Size()); err != nil {
+		return err
 	}
 
 	// Open file
 	out, err := os.OpenFile(outputFile, os.O_WRONLY, 0666)
 	if err != nil {
-		log.Fatalln("Failed to open output file:", err)
+		return err
 	}
 
 	buffer := make([]byte, chunkSizeMaxBytes)
 	offset := int64(0)
 
-	for _, slice := range manifest.Slices {
-		sparse := slice.Checksum == nil
+	for _, breakpoint := range manifest.Breakpoints() {
+		part := manifest.Get(breakpoint)
+		sparse := part.checksum == nil
+		length := part.to - part.from
 
 		if sparse {
-			Debugf("%013d Skipping sparse section of %d bytes\n", offset, slice.Length)
+			Debugf("%013d Skipping sparse section of %d bytes\n", offset, length)
 		} else {
-			Debugf("%013d Writing chunk %x, offset %d - %d (size %d)\n", offset, slice.Checksum, slice.Offset, slice.Offset + slice.Length, slice.Length)
-			chunkFile := fmt.Sprintf("index/%x", slice.Checksum)
+			Debugf("%013d Writing chunk %x, offset %d - %d (size %d)\n", offset, part.checksum, part.from, part.to, length)
+			chunkFile := fmt.Sprintf("index/%x", part.checksum)
 
 			chunk, err := os.OpenFile(chunkFile, os.O_RDONLY, 0666)
 			if err != nil {
 				log.Fatalln("Cannot open chunk file:", err)
 			}
 
-			read, err := chunk.ReadAt(buffer[:slice.Length], slice.Offset)
+			read, err := chunk.ReadAt(buffer[:length], part.from)
 			if err != nil {
-				log.Fatalf("Cannot read chunk %x: %s\n", slice.Checksum, err.Error())
-			} else if int64(read) != slice.Length {
+				log.Fatalf("Cannot read chunk %x: %s\n", part.checksum, err.Error())
+			} else if int64(read) != length {
 				log.Fatalln("Cannot read all required bytes from chunk")
 			}
 
-			written, err := out.WriteAt(buffer[:slice.Length], offset)
+			written, err := out.WriteAt(buffer[:length], offset)
 			if err != nil {
 				log.Fatalln("Cannot write to output file:", err)
-			} else if int64(written) != slice.Length {
+			} else if int64(written) != length {
 				log.Fatalln("Cannot write all bytes to output file")
 			}
 
@@ -83,11 +60,38 @@ func export(manifestFile, outputFile string) {
 			}
 		}
 
-		offset += slice.Length
+		offset += length
 	}
 
 	err = out.Close()
 	if err != nil {
 		log.Fatalln("Cannot close output file")
 	}
+
+	return nil
+}
+
+// Wipe output file (truncate to zero, then to target size)
+func truncateExportFile(outputFile string, size int64) error {
+	if _, err := os.Stat(outputFile); err != nil {
+		file, err := os.Create(outputFile)
+		if err != nil {
+			return err
+		}
+
+		err = file.Close()
+		if err != nil {
+			return err
+		}
+	} else {
+		if err := os.Truncate(outputFile, 0); err != nil {
+			return err
+		}
+	}
+
+	if err := os.Truncate(outputFile, size); err != nil {
+		return err
+	}
+
+	return nil
 }
