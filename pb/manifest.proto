@@ -1,5 +1,5 @@
 syntax = "proto3";
-package internal;
+package pb;
 
 message Slice {
     bytes Checksum = 1;

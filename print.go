@@ -17,6 +17,7 @@ func printManifestFile(manifestFile string) error {
 func printManifestStats(manifestFiles []string) error {
 	totalImageSize := int64(0)
 	totalChunkSize := int64(0)
+	totalSparseSize := int64(0)
 
 	chunkMap := make(map[string]int64, 0)
 
@@ -30,14 +31,16 @@ func printManifestStats(manifestFiles []string) error {
 
 		for _, breakpoint := range manifest.Breakpoints() {
 			part := manifest.Get(breakpoint)
-			checksumStr := fmt.Sprintf("%x", part.checksum)
 
 			// Ignore sparse sections
 			if part.checksum == nil {
+				totalSparseSize += part.to - part.from
 				continue
 			}
 
 			// This is a weird way to get the chunk size, but hey ...
+			checksumStr := fmt.Sprintf("%x", part.checksum)
+
 			if _, ok := chunkMap[checksumStr]; !ok {
 				chunkMap[checksumStr] = part.to
 			} else {
@@ -53,6 +56,7 @@ func printManifestStats(manifestFiles []string) error {
 	fmt.Printf("manifests: %d\n", len(manifestFiles))
 	fmt.Printf("number of unique chunks: %d\n", len(chunkMap))
 	fmt.Printf("total image size: %d\n", totalImageSize)
+	fmt.Printf("total sparse size: %d\n", totalSparseSize)
 	fmt.Printf("total chunk size: %d\n", totalChunkSize)
 
 	return nil

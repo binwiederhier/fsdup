@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/samalba/buse-go/buse"
-	"heckel.io/fsdup/internal"
+	"heckel.io/fsdup/pb"
 	"io/ioutil"
 	"log"
 	"os"
@@ -12,7 +12,7 @@ import (
 )
 
 type localManifestImage struct {
-	manifest *internal.ManifestV1
+	manifest *pb.ManifestV1
 }
 
 func (d *localManifestImage) ReadAt(p []byte, off uint) error {
@@ -121,7 +121,7 @@ func mapDevice(manifestFile string) {
 	if err != nil {
 		log.Fatalln("Error reading file:", err)
 	}
-	manifest := &internal.ManifestV1{}
+	manifest := &pb.ManifestV1{}
 	if err := proto.Unmarshal(in, manifest); err != nil {
 		log.Fatalln("Failed to parse address book:", err)
 	}

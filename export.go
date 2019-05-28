@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
-	"heckel.io/fsdup/internal"
+	"heckel.io/fsdup/pb"
 	"io/ioutil"
 	"log"
 	"os"
@@ -15,7 +15,7 @@ func export(manifestFile, outputFile string) {
 		log.Fatalln("Error reading file:", err)
 	}
 
-	manifest := &internal.ManifestV1{}
+	manifest := &pb.ManifestV1{}
 	if err := proto.Unmarshal(in, manifest); err != nil {
 		log.Fatalln("Failed to parse address book:", err)
 	}

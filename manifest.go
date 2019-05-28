@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
-	"heckel.io/fsdup/internal"
+	"heckel.io/fsdup/pb"
 	"io/ioutil"
 	"sort"
 )
@@ -32,7 +32,7 @@ func NewManifestFromFile(file string) (*manifest, error) {
 		return nil, err
 	}
 
-	pbmanifest := &internal.ManifestV1{}
+	pbmanifest := &pb.ManifestV1{}
 	if err := proto.Unmarshal(in, pbmanifest); err != nil {
 		return nil, err
 	}
@@ -100,14 +100,14 @@ func (m *manifest) MergeAtOffset(offset int64, other *manifest) {
 
 func (m *manifest) WriteToFile(file string) error {
 	// Transform to protobuf struct
-	pbmanifest := &internal.ManifestV1{
+	pbmanifest := &pb.ManifestV1{
 		Size: m.Size(),
-		Slices: make([]*internal.Slice, len(m.diskMap)),
+		Slices: make([]*pb.Slice, len(m.diskMap)),
 	}
 
 	for i, offset := range m.Breakpoints() {
 		part := m.diskMap[offset]
-		pbmanifest.Slices[i] = &internal.Slice{
+		pbmanifest.Slices[i] = &pb.Slice{
 			Checksum: part.checksum,
 			Offset: part.from,
 			Length: part.to - part.from,
