@@ -21,6 +21,7 @@ type chunkPart struct {
 
 func NewDiskMap() *diskManifest {
 	return &diskManifest{
+		size: 0,
 		diskMap: make(map[int64]*chunkPart, 0),
 	}
 }
@@ -41,11 +42,21 @@ func (m *diskManifest) Breakpoints() []int64 {
 
 func (m *diskManifest) Add(offset int64, part *chunkPart) {
 	m.diskMap[offset] = part
-	m.size = maxInt64(m.size, offset + part.to - part.from)
 }
 
 func (m *diskManifest) Get(offset int64) *chunkPart {
 	return m.diskMap[offset]
+}
+
+func (m *diskManifest) Size() int64 {
+	size := int64(0)
+
+	for offset, _ := range m.diskMap {
+		part := m.diskMap[offset]
+		size = maxInt64(size, offset + part.to - part.from)
+	}
+
+	return size
 }
 
 func (m *diskManifest) Merge(other *diskManifest) {
@@ -63,7 +74,7 @@ func (m *diskManifest) MergeAtOffset(offset int64, other *diskManifest) {
 func (m *diskManifest) WriteToFile(file string) error {
 	// Transform to protobuf struct
 	manifest := &internal.ManifestV1{
-		Size: m.size,
+		Size: m.Size(),
 		Slices: make([]*internal.Slice, len(m.diskMap)),
 	}
 
