@@ -6,19 +6,19 @@ import (
 )
 
 type fixedChunker struct {
-	reader io.ReaderAt
-	index indexer
-	start int64
+	reader      io.ReaderAt
+	index       chunkIndex
+	start       int64
 	sizeInBytes int64
-	skip *diskManifest
+	skip        *manifest
 }
 
-func NewFixedChunker(reader io.ReaderAt, index indexer, offset int64, size int64) *fixedChunker {
+func NewFixedChunker(reader io.ReaderAt, index chunkIndex, offset int64, size int64) *fixedChunker {
 	skip := NewManifest()
 	return NewFixedChunkerWithSkip(reader, index, offset, size, skip)
 }
 
-func NewFixedChunkerWithSkip(reader io.ReaderAt, index indexer, offset int64, size int64, skip *diskManifest) *fixedChunker {
+func NewFixedChunkerWithSkip(reader io.ReaderAt, index chunkIndex, offset int64, size int64, skip *manifest) *fixedChunker {
 	return &fixedChunker{
 		reader:      reader,
 		index:       index,
@@ -28,7 +28,7 @@ func NewFixedChunkerWithSkip(reader io.ReaderAt, index indexer, offset int64, si
 	}
 }
 
-func (d *fixedChunker) Dedup() (*diskManifest, error) {
+func (d *fixedChunker) Dedup() (*manifest, error) {
 	out := NewManifest()
 
 	breakpoints := d.skip.Breakpoints()

@@ -5,6 +5,10 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
+type chunker interface {
+	Dedup() (*manifest, error)
+}
+
 type fixedChunk struct {
 	size int64
 	data []byte

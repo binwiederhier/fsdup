@@ -80,8 +80,8 @@ type ntfsChunker struct {
 	sectorSize        int64
 	sectorsPerCluster int64
 	clusterSize       int64
-	index             indexer
-	manifest          *diskManifest
+	index             chunkIndex
+	manifest          *manifest
 }
 
 type entry struct {
@@ -105,7 +105,7 @@ type run struct {
 
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
-func NewNtfsChunker(reader io.ReaderAt, indexer indexer, offset int64, exact bool, minSize int64) *ntfsChunker {
+func NewNtfsChunker(reader io.ReaderAt, indexer chunkIndex, offset int64, exact bool, minSize int64) *ntfsChunker {
 	return &ntfsChunker{
 		reader:   reader,
 		index:    indexer,
@@ -116,7 +116,7 @@ func NewNtfsChunker(reader io.ReaderAt, indexer indexer, offset int64, exact boo
 	}
 }
 
-func (d *ntfsChunker) Dedup() (*diskManifest, error) {
+func (d *ntfsChunker) Dedup() (*manifest, error) {
 	// Read NTFS boot sector
 	boot := make([]byte, ntfsBootRecordSize)
 	_, err := d.reader.ReadAt(boot, d.start)

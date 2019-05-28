@@ -6,9 +6,7 @@ import (
 	"os"
 )
 
-// TODO [HIGH] Support for MBR/GPT partition tables
-// TODO [HIGH] Support for any file
-// TODO [MED] Make manifest creation the last step (or part of all steps)
+// TODO [LOW] Support for GPT partition tables
 // TODO [LOW] Sparsify all runs automatically
 // TODO rename "size" to "length"
 // TODO chunkPart.to|from -> offset|length
@@ -20,7 +18,7 @@ func exit(code int, message string) {
 
 func usage() {
 	fmt.Println("Syntax:")
-	fmt.Println("  fsdup index [-debug] [-nowrite] [-offset OFFSET] [-exact] INFILE MANIFEST")
+	fmt.Println("  fsdup index [-debug] [-nowrite] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
 	fmt.Println("  fsdup map [-debug] MANIFEST")
 	fmt.Println("  fsdup export [-debug] MANIFEST OUTFILE")
 	fmt.Println("  fsdup print [-debug] MANIFEST")

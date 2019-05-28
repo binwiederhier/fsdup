@@ -19,15 +19,15 @@ const (
 
 type mbrDiskChunker struct {
 	reader   io.ReaderAt
-	index    indexer
+	index    chunkIndex
 	start    int64
 	size     int64
 	exact    bool
 	minSize  int64
-	manifest *diskManifest
+	manifest *manifest
 }
 
-func NewMbrDiskChunker(reader io.ReaderAt, index indexer, offset int64, size int64, exact bool, minSize int64) *mbrDiskChunker {
+func NewMbrDiskChunker(reader io.ReaderAt, index chunkIndex, offset int64, size int64, exact bool, minSize int64) *mbrDiskChunker {
 	return &mbrDiskChunker{
 		reader:   reader,
 		index:    index,
@@ -39,8 +39,8 @@ func NewMbrDiskChunker(reader io.ReaderAt, index indexer, offset int64, size int
 	}
 }
 
-func (d *mbrDiskChunker) Dedup() (*diskManifest, error) {
-	println("i am a disk")
+func (d *mbrDiskChunker) Dedup() (*manifest, error) {
+	Debugf("Deduping MBR disk ...\n")
 
 	if err := d.dedupNtfsPartitions(); err != nil {
 		return nil, err

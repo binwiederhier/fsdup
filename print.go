@@ -2,33 +2,16 @@ package main
 
 import (
 	"fmt"
-	"heckel.io/fsdup/internal"
 )
 
 func printManifestFile(manifestFile string) error {
-	manifest, err := readManifestFromFile(manifestFile)
+	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err
 	}
-
-	printManifest(manifest)
+	
+	manifest.Print()
 	return nil
-}
-
-func printManifest(manifest *internal.ManifestV1) {
-	offset := int64(0)
-
-	for _, slice := range manifest.Slices {
-		if slice.Checksum == nil {
-			fmt.Printf("diskoff %013d - %013d len %-10d -> sparse\n",
-				offset, offset + slice.Length, slice.Length)
-		} else {
-			fmt.Printf("diskoff %013d - %013d len %-10d -> chunk %64x chunkoff %10d - %10d\n",
-				offset, offset + slice.Length, slice.Length, slice.Checksum, slice.Offset, slice.Offset + slice.Length)
-		}
-
-		offset += slice.Length
-	}
 }
 
 func printManifestStats(manifestFiles []string) error {
