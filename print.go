@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 )
 
 func printManifestFile(manifestFile string) error {
@@ -53,11 +54,23 @@ func printManifestStats(manifestFiles []string) error {
 		totalChunkSize += chunkSize
 	}
 
-	fmt.Printf("manifests: %d\n", len(manifestFiles))
-	fmt.Printf("number of unique chunks: %d\n", len(chunkMap))
-	fmt.Printf("total image size: %d\n", totalImageSize)
-	fmt.Printf("total sparse size: %d\n", totalSparseSize)
-	fmt.Printf("total chunk size: %d\n", totalChunkSize)
+	manifestCount := int64(len(manifestFiles))
+	chunkCount := int64(len(chunkMap))
+	averageChunkSize := int64(math.Round(float64(totalChunkSize) / float64(chunkCount)))
+
+	totalOnDiskSize := totalImageSize - totalSparseSize
+	dedupRatio := float64(totalOnDiskSize) / float64(totalChunkSize) // as x:1 ratio
+	spaceReductionRatio := (1 - 1/dedupRatio) * 100 // in %
+
+	fmt.Printf("Manifests:               %d\n", manifestCount)
+	fmt.Printf("Number of unique chunks: %d\n", chunkCount)
+	fmt.Printf("Total image size:        %s (%d bytes)\n", convertToHumanReadable(totalImageSize), totalImageSize)
+	fmt.Printf("Total on disk size:      %s (%d bytes)\n", convertToHumanReadable(totalOnDiskSize), totalOnDiskSize)
+	fmt.Printf("Total sparse size:       %s (%d bytes)\n", convertToHumanReadable(totalSparseSize), totalSparseSize)
+	fmt.Printf("Total chunk size:        %s (%d bytes)\n", convertToHumanReadable(totalChunkSize), totalChunkSize)
+	fmt.Printf("Average chunk size:      %s (%d bytes)\n", convertToHumanReadable(averageChunkSize), averageChunkSize)
+	fmt.Printf("Dedup ratio:             %.1f : 1\n", dedupRatio)
+	fmt.Printf("Space reduction ratio:   %.1f %%\n", spaceReductionRatio)
 
 	return nil
 }

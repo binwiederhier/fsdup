@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"strconv"
@@ -96,4 +97,20 @@ func convertToBytes(s string) (int64, error) {
 	default:
 		return int64(value), nil
 	}
+}
+
+func convertToHumanReadable(b int64) string {
+	const unit = 1024
+
+	if b < unit {
+		return fmt.Sprintf("%d byte(s)", b)
+	}
+
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
