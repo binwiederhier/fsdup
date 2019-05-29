@@ -8,7 +8,7 @@ import (
 
 const (
 	chunkSizeMaxBytes      = 32 * 1024 * 1024
-	dedupFileSizeMinBytes  = 128 * 1024
+	dedupFileSizeMinBytes  = 2 * 1024 * 1024
 
 	// NTFS boot sector (absolute aka relative to file system start)
 	ntfsBootRecordSize              = 512

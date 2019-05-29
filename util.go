@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 func parseIntLE(b []byte, offset int64, length int64) int64 {
@@ -64,4 +68,32 @@ func readAndCompare(reader io.ReaderAt, offset int64, expected []byte) error {
 	}
 
 	return nil
+}
+
+func convertToBytes(s string) (int64, error) {
+	r := regexp.MustCompile(`^(\d+)([bBkKmMgGtT])?$`)
+	matches := r.FindStringSubmatch(s)
+
+	if matches == nil {
+		return 0, errors.New("cannot convert to bytes: " + s)
+	}
+
+	value, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, err
+	}
+
+	unit := strings.ToLower(matches[2])
+	switch unit {
+	case "k":
+		return int64(value) * (1 << 10), nil
+	case "m":
+		return int64(value) * (1 << 20), nil
+	case "g":
+		return int64(value) * (1 << 30), nil
+	case "t":
+		return int64(value) * (1 << 40), nil
+	default:
+		return int64(value), nil
+	}
 }

@@ -12,8 +12,6 @@ type fileChunkStore struct {
 }
 
 func NewFileStore(root string) *fileChunkStore {
-	os.Mkdir(root, 0770)
-
 	return &fileChunkStore{
 		root:     root,
 		chunkMap: make(map[string]bool, 0),
@@ -21,11 +19,18 @@ func NewFileStore(root string) *fileChunkStore {
 }
 
 func (idx *fileChunkStore) WriteChunk(chunk *chunk) error {
-	if _, ok := idx.chunkMap[chunk.ChecksumString()]; !ok {
-		chunkFile := fmt.Sprintf("%s/%x", idx.root, chunk.Checksum())
+	checksum := chunk.ChecksumString()
 
-		if _, err := os.Stat(chunkFile); err != nil {
-			err = ioutil.WriteFile(chunkFile, chunk.Data(), 0666)
+	if _, ok := idx.chunkMap[checksum]; !ok {
+		dir := fmt.Sprintf("%s/%s/%s", idx.root, checksum[0:3], checksum[3:6])
+		file := fmt.Sprintf("%s/%s", dir, checksum)
+
+		if _, err := os.Stat(file); err != nil {
+			if err := os.MkdirAll(dir, 0770); err != nil {
+				return err
+			}
+
+			err = ioutil.WriteFile(file, chunk.Data(), 0666)
 			if err != nil {
 				return err
 			}

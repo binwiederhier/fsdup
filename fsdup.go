@@ -33,7 +33,7 @@ func main() {
 	indexNoWriteFlag := indexCommand.Bool("nowrite", false, "Do not write chunk data, only manifest")
 	indexOffset := indexCommand.Int64("offset", 0, "Start reading file at given offset")
 	indexExact := indexCommand.Bool("exact", false, "Ignore the NTFS bitmap, i.e. include unused blocks")
-	indexMinSize := indexCommand.Int64("minsize", dedupFileSizeMinBytes, "Minimum file size to consider for deduping")
+	indexMinSize := indexCommand.String("minsize", fmt.Sprintf("%d", dedupFileSizeMinBytes), "Minimum file size to consider for deduping")
 
 	mapCommand := flag.NewFlagSet("map", flag.ExitOnError)
 	mapDebugFlag := mapCommand.Bool("debug", debug, "Enable debug mode")
@@ -65,7 +65,10 @@ func main() {
 		nowrite := *indexNoWriteFlag
 		offset := *indexOffset
 		exact := *indexExact
-		minSize := *indexMinSize
+		minSize, err := convertToBytes(*indexMinSize)
+		if err != nil {
+			exit(2, "Invalid min size value: " + err.Error())
+		}
 
 		file := indexCommand.Arg(0)
 		manifest := indexCommand.Arg(1)
