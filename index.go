@@ -14,11 +14,12 @@ type fileType int
 const (
 	typeNtfs fileType = iota + 1
 	typeMbrDisk
+	typeGptDisk
 	typeUnknown
 )
 
 const (
-	probeTypeBufferLength = 512
+	probeTypeBufferLength = 1024
 )
 
 func index(inputFile string, manifestFile string, offset int64, nowrite bool, exact bool, minSize int64) error {
@@ -55,6 +56,8 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 		chunker = NewNtfsChunker(file, store, offset, exact, minSize)
 	case typeMbrDisk:
 		chunker = NewMbrDiskChunker(file, store, offset, size, exact, minSize)
+	case typeGptDisk:
+		chunker = NewGptDiskChunker(file, store, offset, size, exact, minSize)
 	default:
 		chunker = NewFixedChunker(file, store, offset, size)
 	}
@@ -115,6 +118,11 @@ func probeType(reader io.ReaderAt, offset int64) (fileType, error) {
 	// Detect NTFS
 	if bytes.Compare([]byte(ntfsBootMagic), buffer[ntfsBootMagicOffset:ntfsBootMagicOffset+len(ntfsBootMagic)]) == 0 {
 		return typeNtfs, nil
+	}
+
+	// Detect GPT
+	if bytes.Compare([]byte(gptSignatureMagic), buffer[gptSignatureOffset:gptSignatureOffset+len(gptSignatureMagic)]) == 0 {
+		return typeGptDisk, nil
 	}
 
 	// Detect MBR

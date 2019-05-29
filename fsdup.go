@@ -6,7 +6,6 @@ import (
 	"os"
 )
 
-// TODO [LOW] Support for GPT partition tables
 // TODO [LOW] Sparsify all runs automatically
 // TODO rename "size" to "length"
 // TODO chunkPart.to|from -> offset|length
