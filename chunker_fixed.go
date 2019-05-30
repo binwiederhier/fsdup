@@ -76,6 +76,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 					checksum: chunk.Checksum(),
 					from: 0,
 					to: chunk.Size(),
+					kind: kindGap,
 				})
 
 				currentOffset = chunkEndOffset
@@ -105,6 +106,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 						checksum: chunk.Checksum(),
 						from: 0,
 						to: chunk.Size(),
+						kind: kindGap,
 					})
 
 					Debugf("offset %d - %d, NEW2 chunk %x, size %d\n",
@@ -150,6 +152,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				checksum: chunk.Checksum(),
 				from: 0,
 				to: chunk.Size(),
+				kind: kindGap,
 			})
 
 			currentOffset = chunkEndOffset

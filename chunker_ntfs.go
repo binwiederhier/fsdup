@@ -6,6 +6,63 @@ import (
 	"io"
 )
 
+// ntfsChunker reads and deduplicates files within the NTFS
+// file system. It implements the chunker interface.
+//
+// Assuming the input is an NTFS partition, it works in
+// three passes:
+//
+// Pass 1: Find FILE entries > $minSize according to $MFT (F):
+//  _____________________________________________
+// |__|FFF|_____|FFF|_______|FF|_________|FF|____|
+//
+// Pass 2: Find unused sections according to $Bitmap and mark as sparse (S):
+//  _____________________________________________
+// |__|FFF|_|SS||FFF|__|SS|_|FF|___|SSSSS|FF|____|
+//
+// Pass 3: Find gaps:
+//  _____________________________________________
+// |GG|FFF|G|SS||FFF|GG|SS|G|FF|GGG|SSSSS|FF|GGGG|
+//
+//
+// Glossary:
+//   run:  mft data run, pointing to chunkParts with data on disk
+//   chunk: data blob, containing data from one or many runs
+//   chunk part: pointer to one or many parts of a chunk; a run's data can be spread across multiple chunks
+//
+type ntfsChunker struct {
+	reader            io.ReaderAt
+	start             int64
+	sizeInBytes       int64
+	exact             bool
+	minSize           int64
+	totalSectors      int64
+	sectorSize        int64
+	sectorsPerCluster int64
+	clusterSize       int64
+	store             chunkStore
+	manifest          *manifest
+}
+
+type entry struct {
+	offset        int64
+	resident      bool
+	data          bool
+	inuse         bool
+	allocatedSize int64
+	dataSize      int64
+	runs          []run
+}
+
+type run struct {
+	sparse bool
+	fromOffset   int64
+	toOffset     int64
+	firstCluster int64 // signed!
+	clusterCount int64
+	size int64
+}
+
 const (
 	chunkSizeMaxBytes      = 32 * 1024 * 1024
 	dedupFileSizeMinBytes  = 2 * 1024 * 1024
@@ -69,39 +126,6 @@ const (
 	ntfsAttrDataRunsHeaderLength = 1
 	ntfsAttrDataRunsHeaderEndMarker = 0
 )
-
-type ntfsChunker struct {
-	reader            io.ReaderAt
-	start             int64
-	sizeInBytes       int64
-	exact             bool
-	minSize           int64
-	totalSectors      int64
-	sectorSize        int64
-	sectorsPerCluster int64
-	clusterSize       int64
-	store             chunkStore
-	manifest          *manifest
-}
-
-type entry struct {
-	offset        int64
-	resident      bool
-	data          bool
-	inuse         bool
-	allocatedSize int64
-	dataSize      int64
-	runs          []run
-}
-
-type run struct {
-	sparse bool
-	fromOffset   int64
-	toOffset     int64
-	firstCluster int64 // signed!
-	clusterCount int64
-	size int64
-}
 
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
@@ -363,36 +387,6 @@ func (d *ntfsChunker) readRuns(entry []byte, offset int64) []run {
 	return runs
 }
 
-/*
- run: mft data run, pointing to chunkParts with data on disk
- `- chunkPart: pointer to one or many chunkParts of a chunk; a run's data can be spread across multiple chunks
-
- chunk: data blob, containing data from one or many runs
- `- diskSection: pointer to one or many sections on disk, describing the offsets of how a chunk is assembled
-
- MFT entry runs:
-  File:        [              disk1.ntfs                ]
-  NTFS Runs:   [   A     |  B |           C             ]        << 3 runs
-  Chunks:      [   1   |   2    |   3     |    4   |  5 ]        << chunk (cut at fixed intervals, across runs)
-  Chunk Parts: [   a   |b| c  |d|   e     |    f   |  g ]        << chunkParts (cut at run and chunk boundaries)
-
- Result:
-  run-to-chunk mapping: needed for the creation of the manifest
-  chunk-to-run mapping: needed to be able to assemble/read the chunk (only the FIRST file is necessary)
-
-  run-to-chunk:
-   runA.chunkParts = [a = 1:0-100, b = 2:0-20]
-   runB.chunkParts = [c = 2:21-80]
-   runC.chunkParts = [d = 2:81-100, e = 3:0-100, f = 4:0-100, g = 5:0-100]
-
-  chunk-to-run:
-   chunk1.diskSections = [A: 0-80]
-   chunk2.diskSections = [A: 81-100, B: 0-100, C: 0-10]
-   chunk3.diskSections = [C: 11-50]
-   chunk4.diskSections = [C: 51-80]
-   chunk5.diskSections = [C: 81-100]
-
- */
 func (d *ntfsChunker) dedupFile(entry *entry) error {
 	Debugf("- Deduping FILE\n")
 
@@ -438,6 +432,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 					checksum: nil, // fill this when chunk is finalized!
 					from: chunk.Size(),
 					to: chunk.Size() + int64(runBytesRead),
+					kind: kindFile,
 				}
 
 				chunk.Write(buffer[:runBytesRead])
@@ -562,6 +557,7 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 								checksum: nil,
 								from: sparseSectionStartOffset,
 								to: sparseSectionEndOffset,
+								kind: kindSparse,
 							})
 						}
 					}

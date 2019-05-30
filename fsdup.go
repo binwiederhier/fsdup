@@ -27,25 +27,6 @@ func usage() {
 }
 
 func main() {
-	indexCommand := flag.NewFlagSet("index", flag.ExitOnError)
-	indexDebugFlag := indexCommand.Bool("debug", debug, "Enable debug mode")
-	indexNoWriteFlag := indexCommand.Bool("nowrite", false, "Do not write chunk data, only manifest")
-	indexOffset := indexCommand.Int64("offset", 0, "Start reading file at given offset")
-	indexExact := indexCommand.Bool("exact", false, "Ignore the NTFS bitmap, i.e. include unused blocks")
-	indexMinSize := indexCommand.String("minsize", fmt.Sprintf("%d", dedupFileSizeMinBytes), "Minimum file size to consider for deduping")
-
-	mapCommand := flag.NewFlagSet("map", flag.ExitOnError)
-	mapDebugFlag := mapCommand.Bool("debug", debug, "Enable debug mode")
-
-	exportCommand := flag.NewFlagSet("export", flag.ExitOnError)
-	exportDebugFlag := exportCommand.Bool("debug", debug, "Enable debug mode")
-
-	printCommand := flag.NewFlagSet("print", flag.ExitOnError)
-	printDebugFlag := printCommand.Bool("debug", debug, "Enable debug mode")
-
-	statCommand := flag.NewFlagSet("stat", flag.ExitOnError)
-	statDebugFlag := statCommand.Bool("debug", debug, "Enable debug mode")
-
 	if len(os.Args) < 2 {
 		usage()
 	}
@@ -54,79 +35,121 @@ func main() {
 
 	switch command {
 	case "index":
-		indexCommand.Parse(os.Args[2:])
-
-		if indexCommand.NArg() < 2 {
-			usage()
-		}
-
-		debug = *indexDebugFlag
-		nowrite := *indexNoWriteFlag
-		offset := *indexOffset
-		exact := *indexExact
-		minSize, err := convertToBytes(*indexMinSize)
-		if err != nil {
-			exit(2, "Invalid min size value: " + err.Error())
-		}
-
-		file := indexCommand.Arg(0)
-		manifest := indexCommand.Arg(1)
-
-		if err := index(file, manifest, offset, nowrite, exact, minSize); err != nil {
-			exit(2, "Cannot index file: " + string(err.Error()))
-		}
+		indexCommand(os.Args[2:])
 	case "map":
-		mapCommand.Parse(os.Args[2:])
-
-		if mapCommand.NArg() < 1 {
-			usage()
-		}
-
-		debug = *mapDebugFlag
-		filename := mapCommand.Arg(0)
-
-		mapDevice(filename)
+		mapCommand(os.Args[2:])
 	case "export":
-		exportCommand.Parse(os.Args[2:])
-
-		if exportCommand.NArg() < 2 {
-			usage()
-		}
-
-		debug = *exportDebugFlag
-		manifest := exportCommand.Arg(0)
-		outfile := exportCommand.Arg(1)
-
-		if err := export(manifest, outfile); err != nil {
-			exit(2, "Cannot export file: " + string(err.Error()))
-		}
+		exportCommand(os.Args[2:])
 	case "print":
-		printCommand.Parse(os.Args[2:])
-
-		if printCommand.NArg() < 1 {
-			usage()
-		}
-
-		debug = *printDebugFlag
-		manifest := printCommand.Arg(0)
-
-		if err := printManifestFile(manifest); err != nil {
-			exit(2, "Cannot read manifest: " + string(err.Error()))
-		}
+		printCommand(os.Args[2:])
 	case "stat":
-		statCommand.Parse(os.Args[2:])
-
-		if statCommand.NArg() < 1 {
-			usage()
-		}
-
-		debug = *statDebugFlag
-		manifests := statCommand.Args()
-
-		if err := printManifestStats(manifests); err != nil {
-			exit(2, "Cannot create manifest stats: " + string(err.Error()))
-		}
+		statCommand(os.Args[2:])
 	default:
 		usage()
+	}
+}
+
+func indexCommand(args []string) {
+	flags := flag.NewFlagSet("index", flag.ExitOnError)
+	debugFlag := flags.Bool("debug", debug, "Enable debug mode")
+	noWriteFlag := flags.Bool("nowrite", false, "Do not write chunk data, only manifest")
+	offsetFlag := flags.Int64("offset", 0, "Start reading file at given offset")
+	exactFlag := flags.Bool("exact", false, "Ignore the NTFS bitmap, i.e. include unused blocks")
+	minSizeFlag := flags.String("minsize", fmt.Sprintf("%d", dedupFileSizeMinBytes), "Minimum file size to consider for deduping")
+
+	flags.Parse(args)
+
+	if flags.NArg() < 2 {
+		usage()
+	}
+
+	debug = *debugFlag
+	nowrite := *noWriteFlag
+	offset := *offsetFlag
+	exact := *exactFlag
+	minSize, err := convertToBytes(*minSizeFlag)
+	if err != nil {
+		exit(2, "Invalid min size value: " + err.Error())
+	}
+
+	file := flags.Arg(0)
+	manifest := flags.Arg(1)
+
+	if err := index(file, manifest, offset, nowrite, exact, minSize); err != nil {
+		exit(2, "Cannot index file: " + string(err.Error()))
+	}
+}
+
+func mapCommand(args []string) {
+	flags := flag.NewFlagSet("map", flag.ExitOnError)
+	debugFlag := flags.Bool("debug", debug, "Enable debug mode")
+
+	flags.Parse(args)
+
+	if flags.NArg() < 1 {
+		usage()
+	}
+
+	debug = *debugFlag
+	filename := flags.Arg(0)
+
+	mapDevice(filename)
+}
+
+func exportCommand(args []string) {
+	flags := flag.NewFlagSet("export", flag.ExitOnError)
+	debugFlag := flags.Bool("debug", debug, "Enable debug mode")
+
+	flags.Parse(args)
+
+	if flags.NArg() < 2 {
+		usage()
+	}
+
+	debug = *debugFlag
+	manifest := flags.Arg(0)
+	outfile := flags.Arg(1)
+
+	if err := export(manifest, outfile); err != nil {
+		exit(2, "Cannot export file: " + string(err.Error()))
+	}
+}
+
+func printCommand(args []string) {
+	flags := flag.NewFlagSet("print", flag.ExitOnError)
+	debugFlag := flags.Bool("debug", debug, "Enable debug mode")
+
+	flags.Parse(args)
+
+	if flags.NArg() < 1 {
+		usage()
+	}
+
+	debug = *debugFlag
+	manifest := flags.Arg(0)
+
+	m, err := NewManifestFromFile(manifest)
+	if err != nil {
+		exit(2, "Cannot read manifest: " + string(err.Error()))
+	}
+
+	m.Print()
+}
+
+func statCommand(args []string) {
+	flags := flag.NewFlagSet("stat", flag.ExitOnError)
+	debugFlag := flags.Bool("debug", debug, "Enable debug mode")
+
+	flags.Parse(args)
+
+	if flags.NArg() < 1 {
+		usage()
+	}
+
+	debug = *debugFlag
+	manifests := flags.Args()
+
+	if err := printStats(manifests); err != nil {
+		exit(2, "Cannot create manifest stats: " + string(err.Error()))
 	}
 }

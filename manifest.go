@@ -8,6 +8,14 @@ import (
 	"sort"
 )
 
+type kind int
+
+const (
+	kindFile kind = 1
+	kindSparse kind = 2
+	kindGap kind = 3
+)
+
 type manifest struct {
 	diskMap map[int64]*chunkPart
 	size    int64
@@ -17,6 +25,7 @@ type chunkPart struct {
 	checksum []byte
 	from int64
 	to int64
+	kind kind
 }
 
 func NewManifest() *manifest {
@@ -45,6 +54,7 @@ func NewManifestFromFile(file string) (*manifest, error) {
 			checksum: slice.Checksum,
 			from: slice.Offset,
 			to: slice.Offset + slice.Length,
+			kind: kind(slice.Kind),
 		})
 
 		offset += slice.Length
@@ -111,6 +121,7 @@ func (m *manifest) WriteToFile(file string) error {
 			Checksum: part.checksum,
 			Offset: part.from,
 			Length: part.to - part.from,
+			Kind: int32(part.kind),
 		}
 	}
 
@@ -132,11 +143,11 @@ func (m *manifest) Print() {
 		part := m.diskMap[offset]
 
 		if part.checksum == nil {
-			fmt.Printf("diskoff %013d - %013d len %-10d -> sparse\n",
-				offset, offset + part.to - part.from, part.to - part.from)
+			fmt.Printf("kind%d diskoff %013d - %013d len %-10d -> sparse\n",
+				part.kind, offset, offset + part.to - part.from, part.to - part.from)
 		} else {
-			fmt.Printf("diskoff %013d - %013d len %-10d -> chunk %64x chunkoff %10d - %10d\n",
-				offset, offset + part.to - part.from, part.to - part.from, part.checksum, part.from, part.to)
+			fmt.Printf("kind%d diskoff %013d - %013d len %-10d -> chunk %64x chunkoff %10d - %10d\n",
+				part.kind, offset, offset + part.to - part.from, part.to - part.from, part.checksum, part.from, part.to)
 		}
 	}
 }
