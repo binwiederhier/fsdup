@@ -6,7 +6,7 @@ type dummyChunkStore struct {
 	// Hm?
 }
 
-func NewDummyStore() *dummyChunkStore {
+func NewDummyChunkStore() *dummyChunkStore {
 	return &dummyChunkStore{}
 }
 

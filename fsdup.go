@@ -79,9 +79,9 @@ func indexCommand(args []string) {
 
 	var store chunkStore
 	if *noWriteFlag {
-		store = NewDummyStore()
+		store = NewDummyChunkStore()
 	} else {
-		store = NewFileStore(*storeFlag)
+		store = NewFileChunkStore(*storeFlag)
 	}
 
 	// Go index!
@@ -93,6 +93,7 @@ func indexCommand(args []string) {
 func mapCommand(args []string) {
 	flags := flag.NewFlagSet("map", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", debug, "Enable debug mode")
+	storeFlag := flags.String("store", "index", "Location of the chunk store")
 
 	flags.Parse(args)
 
@@ -103,7 +104,11 @@ func mapCommand(args []string) {
 	debug = *debugFlag
 	filename := flags.Arg(0)
 
-	mapDevice(filename)
+	store := NewFileChunkStore(*storeFlag)
+
+	if err := mapDevice(filename, store); err != nil {
+		exit(2, "Cannot map drive file: " + string(err.Error()))
+	}
 }
 
 func exportCommand(args []string) {
@@ -121,7 +126,7 @@ func exportCommand(args []string) {
 	manifest := flags.Arg(0)
 	outfile := flags.Arg(1)
 
-	store := NewFileStore(*storeFlag)
+	store := NewFileChunkStore(*storeFlag)
 
 	if err := export(manifest, store, outfile); err != nil {
 		exit(2, "Cannot export file: " + string(err.Error()))

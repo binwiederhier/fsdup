@@ -139,12 +139,12 @@ func (m *manifest) WriteToFile(file string) error {
 }
 
 func (m *manifest) Print() {
-	for _, offset := range m.Breakpoints() {
+	for i, offset := range m.Breakpoints() {
 		part := m.diskMap[offset]
 
 		if part.checksum == nil {
-			fmt.Printf("diskoff %013d - %013d len %-10d    sparse     -\n",
-				offset, offset + part.to - part.from, part.to - part.from)
+			fmt.Printf("idx %010d diskoff %013d - %013d len %-10d    sparse     -\n",
+				i, offset, offset + part.to - part.from, part.to - part.from)
 		} else {
 			kind := "unknown"
 			if part.kind == kindGap {
@@ -153,8 +153,8 @@ func (m *manifest) Print() {
 				kind = "file"
 			}
 
-			fmt.Printf("diskoff %013d - %013d len %-10d    %-10s chunk %64x chunkoff %10d - %10d\n",
-				offset, offset + part.to - part.from, part.to - part.from, kind, part.checksum, part.from, part.to)
+			fmt.Printf("idx %010d diskoff %013d - %013d len %-10d    %-10s chunk %64x chunkoff %10d - %10d\n",
+				i, offset, offset + part.to - part.from, part.to - part.from, kind, part.checksum, part.from, part.to)
 		}
 	}
 }

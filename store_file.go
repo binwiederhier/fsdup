@@ -12,7 +12,7 @@ type fileChunkStore struct {
 	chunkMap map[string]bool
 }
 
-func NewFileStore(root string) *fileChunkStore {
+func NewFileChunkStore(root string) *fileChunkStore {
 	return &fileChunkStore{
 		root:     root,
 		chunkMap: make(map[string]bool, 0),
@@ -43,7 +43,6 @@ func (idx *fileChunkStore) Write(chunk *chunk) error {
 	return nil
 }
 
-
 func (idx *fileChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) (int, error) {
 	checksumStr := fmt.Sprintf("%x", checksum)
 	dir := fmt.Sprintf("%s/%s/%s", idx.root, checksumStr[0:3], checksumStr[3:6])
@@ -51,7 +50,6 @@ func (idx *fileChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) 
 
 	if _, err := os.Stat(file); err != nil {
 		return 0, err
-
 	}
 
 	chunk, err := os.OpenFile(file, os.O_RDONLY, 0666)

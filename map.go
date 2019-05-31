@@ -9,95 +9,79 @@ import (
 
 type manifestImage struct {
 	manifest *manifest
+	store chunkStore
 	breakpoints []int64
 }
 
-func NewManifestImage(manifest *manifest) *manifestImage {
+func NewManifestImage(manifest *manifest, store chunkStore) *manifestImage {
 	return &manifestImage{
 		manifest: manifest,
+		store: store,
 		breakpoints: manifest.Breakpoints(), // cache !
 	}
 }
 
 func (d *manifestImage) ReadAt(p []byte, off uint) error {
-	log.Printf("[localManifestImage] READ offset:%d len:%d\n", off, len(p))
+	log.Printf("\nREAD offset:%d len:%d\n", off, len(p))
 
-	// Find from/to chunk
-	// FIXME this is inefficient
-/*
-	d.manifest.
+	// Find first chunk
+	// FIXME Linear search is inefficient; use binary search instead, or something better.
+	breakpointIndex := 0
+	requestedStart := int64(off)
 
-	chunkOffset := int64(0)
-	fromChunkIndex := -1
-	toChunkIndex := -1
-	for i, slice := range d.manifest.Slices {
-		if fromChunkIndex == -1 {
-			if int64(off) >= chunkOffset {
-				fromChunkIndex = i
+	for i := 0; i < len(d.breakpoints); i++ {
+		part := d.manifest.Get(d.breakpoints[i])
+		partStart := d.breakpoints[i]
+		partEnd := partStart + part.to - part.from
+
+		if partStart <= requestedStart && requestedStart < partEnd {
+			breakpointIndex = i
+			Debugf("breakpoint index = %d\n", breakpointIndex)
+			break
+		}
+	}
+
+	// Read chunk
+	bufferOffset := int64(0)
+	currentOffset := int64(off)
+	remainingToRead := int64(len(p))
+
+	for remainingToRead > 0 {
+		part := d.manifest.Get(d.breakpoints[breakpointIndex])
+		partStart := d.breakpoints[breakpointIndex]
+		partEnd := partStart + part.to - part.from
+		partOffset := part.from + currentOffset - partStart
+		maxChunkBytes := minInt64(part.to - part.from, partEnd - currentOffset)
+		bytesToRead := minInt64(maxChunkBytes, remainingToRead)
+
+		var read int
+		var err error
+
+		if part.checksum == nil {
+			log.Printf("- Reading disk offset %d - %d as sparse chunk (len %d)\n",
+				currentOffset, currentOffset + bytesToRead, bytesToRead)
+
+			// Note: This assumes that the buffer "p" is empty!
+			// Let's hope that is true.
+
+			read = int(bytesToRead)
+		} else {
+			log.Printf("- Reading disk offset %d - %d to buffer %d - %d from chunk %x, offset %d - %d (len %d)\n",
+				currentOffset, currentOffset + bytesToRead, bufferOffset, bufferOffset + bytesToRead,
+				part.checksum, partOffset, partOffset + bytesToRead, bytesToRead)
+
+			read, err = d.store.ReadAt(part.checksum, p[bufferOffset:bufferOffset+bytesToRead], partOffset)
+			if err != nil {
+				return err
 			}
 		}
 
-		if toChunkIndex == -1 {
-			if int64(off) <= chunkOffset {
-				toChunkIndex = i
-				break
-			}
-		}
-
-		chunkOffset += slice.Length
+		currentOffset += int64(read)
+		bufferOffset += int64(read)
+		remainingToRead -= int64(read)
+		breakpointIndex++
 	}
 
-	fromOffset := int64(off)
-	toOffset := fromOffset + int64(len(p)) - 1
-
-	log.Printf("[localManifestImage] - fromOffset = %d, to = %d, fromChunk = %d, toChunk = %d\n", fromOffset, toOffset,
-		fromChunkIndex, toChunkIndex)
-
-	pFrom := int64(0)
-	chunkFrom := int64(0)
-	chunkTo := int64(0)
-
-	for chunkIndex := fromChunkIndex; chunkIndex <= toChunkIndex; chunkIndex++ {
-		chunkLength := d.manifest.Slices[chunkIndex].Length
-		chunkChecksum := d.manifest.Slices[chunkIndex].Checksum
-
-		if chunkIndex == fromChunkIndex {
-			chunkFrom = fromOffset % chunkLength
-		} else {
-			chunkFrom = 0
-		}
-
-		if chunkIndex == toChunkIndex {
-			chunkTo = toOffset % chunkLength
-		} else {
-			chunkTo = chunkLength - 1
-		}
-
-		chunkPartLen := chunkTo - chunkFrom + 1
-		pTo := pFrom + chunkPartLen
-
-		log.Printf("[localManifestImage] - idx = %d, checksum = %x, chunkFrom = %d, chunkTo = %d, chunkPartLen = %d, pFrom = %d, pTo = %d\n",
-			chunkIndex, chunkChecksum, chunkFrom, chunkTo, chunkPartLen, pFrom, pTo)
-
-		chunkFile := fmt.Sprintf("index/%x", chunkChecksum)
-
-		f, err := os.OpenFile(chunkFile, os.O_RDONLY, 0666)
-		if err != nil {
-			panic(err)
-		}
-
-		read, err := f.ReadAt(p[pFrom:pTo], chunkFrom)
-		if err != nil {
-			panic(err)
-		}
-		if int64(read) != chunkPartLen {
-			panic(fmt.Sprintf("invalid len read. expected %d, but read %d", chunkPartLen, read))
-		}
-
-		pFrom += int64(read)
-	}
-*/
-	log.Printf("[localManifestImage] READ offset:%d len:%d\n", off, len(p))
 	return nil
 }
 
@@ -122,7 +106,7 @@ func (d *manifestImage) Trim(off, length uint) error {
 	return nil
 }
 
-func mapDevice(manifestFile string) error {
+func mapDevice(manifestFile string, store chunkStore) error {
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err
@@ -130,7 +114,7 @@ func mapDevice(manifestFile string) error {
 
 	Debugf("Creating device /dev/nbd0 ...\n")
 
-	image := NewManifestImage(manifest)
+	image := NewManifestImage(manifest, store)
 	device, err := buse.CreateDevice("/dev/nbd0", uint(manifest.Size()), image)
 	if err != nil {
 		return err
