@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-func export(manifestFile, outputFile string) error {
+func export(manifestFile string, store chunkStore, outputFile string) error {
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err
@@ -14,9 +14,6 @@ func export(manifestFile, outputFile string) error {
 	if err := truncateExportFile(outputFile, manifest.Size()); err != nil {
 		return err
 	}
-
-	// Open chunk index
-	store := NewFileStore("index")
 
 	// Open file
 	out, err := os.OpenFile(outputFile, os.O_WRONLY, 0666)

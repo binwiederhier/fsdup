@@ -22,7 +22,7 @@ const (
 	probeTypeBufferLength = 1024
 )
 
-func index(inputFile string, manifestFile string, offset int64, nowrite bool, exact bool, minSize int64) error {
+func index(inputFile string, store chunkStore, manifestFile string, offset int64, exact bool, minSize int64) error {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return err
@@ -31,18 +31,10 @@ func index(inputFile string, manifestFile string, offset int64, nowrite bool, ex
 	defer file.Close()
 
 	var chunker chunker
-	var store chunkStore
 
 	size, err := readFileSize(file, inputFile)
 	if err != nil {
 		return err
-	}
-
-	// Pick chunk store
-	if nowrite {
-		store = NewDummyStore()
-	} else {
-		store = NewFileStore("index")
 	}
 
 	// Probe type to figure out which chunker to pick

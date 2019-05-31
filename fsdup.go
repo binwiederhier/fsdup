@@ -19,7 +19,7 @@ func exit(code int, message string) {
 
 func usage() {
 	fmt.Println("Syntax:")
-	fmt.Println("  fsdup index [-debug] [-nowrite] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
+	fmt.Println("  fsdup index [-debug] [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
 	fmt.Println("  fsdup map [-debug] MANIFEST")
 	fmt.Println("  fsdup export [-debug] MANIFEST OUTFILE")
 	fmt.Println("  fsdup print [-debug] MANIFEST")
@@ -55,6 +55,7 @@ func indexCommand(args []string) {
 	flags := flag.NewFlagSet("index", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", debug, "Enable debug mode")
 	noWriteFlag := flags.Bool("nowrite", false, "Do not write chunk data, only manifest")
+	storeFlag := flags.String("store", "index", "Location of the chunk store")
 	offsetFlag := flags.Int64("offset", 0, "Start reading file at given offset")
 	exactFlag := flags.Bool("exact", false, "Ignore the NTFS bitmap, i.e. include unused blocks")
 	minSizeFlag := flags.String("minsize", fmt.Sprintf("%d", dedupFileSizeMinBytes), "Minimum file size to consider for deduping")
@@ -66,7 +67,6 @@ func indexCommand(args []string) {
 	}
 
 	debug = *debugFlag
-	nowrite := *noWriteFlag
 	offset := *offsetFlag
 	exact := *exactFlag
 	minSize, err := convertToBytes(*minSizeFlag)
@@ -77,7 +77,15 @@ func indexCommand(args []string) {
 	file := flags.Arg(0)
 	manifest := flags.Arg(1)
 
-	if err := index(file, manifest, offset, nowrite, exact, minSize); err != nil {
+	var store chunkStore
+	if *noWriteFlag {
+		store = NewDummyStore()
+	} else {
+		store = NewFileStore(*storeFlag)
+	}
+
+	// Go index!
+	if err := index(file, store, manifest, offset, exact, minSize); err != nil {
 		exit(2, "Cannot index file: " + string(err.Error()))
 	}
 }
@@ -101,6 +109,7 @@ func mapCommand(args []string) {
 func exportCommand(args []string) {
 	flags := flag.NewFlagSet("export", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", debug, "Enable debug mode")
+	storeFlag := flags.String("store", "index", "Location of the chunk store")
 
 	flags.Parse(args)
 
@@ -112,7 +121,9 @@ func exportCommand(args []string) {
 	manifest := flags.Arg(0)
 	outfile := flags.Arg(1)
 
-	if err := export(manifest, outfile); err != nil {
+	store := NewFileStore(*storeFlag)
+
+	if err := export(manifest, store, outfile); err != nil {
 		exit(2, "Cannot export file: " + string(err.Error()))
 	}
 }
