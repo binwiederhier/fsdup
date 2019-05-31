@@ -1,5 +1,6 @@
 package main
 
 type chunkStore interface {
-	WriteChunk(chunk *chunk) error
+	Write(chunk *chunk) error
+	ReadAt(checksum []byte, buffer []byte, offset int64) (int, error)
 }

@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"errors"
 	"os"
 )
 
@@ -15,6 +14,9 @@ func export(manifestFile, outputFile string) error {
 	if err := truncateExportFile(outputFile, manifest.Size()); err != nil {
 		return err
 	}
+
+	// Open chunk index
+	store := NewFileStore("index")
 
 	// Open file
 	out, err := os.OpenFile(outputFile, os.O_WRONLY, 0666)
@@ -34,29 +36,19 @@ func export(manifestFile, outputFile string) error {
 			Debugf("%013d Skipping sparse section of %d bytes\n", offset, length)
 		} else {
 			Debugf("%013d Writing chunk %x, offset %d - %d (size %d)\n", offset, part.checksum, part.from, part.to, length)
-			chunkFile := fmt.Sprintf("index/%x", part.checksum)
 
-			chunk, err := os.OpenFile(chunkFile, os.O_RDONLY, 0666)
+			read, err := store.ReadAt(part.checksum, buffer[:length], part.from)
 			if err != nil {
-				log.Fatalln("Cannot open chunk file:", err)
-			}
-
-			read, err := chunk.ReadAt(buffer[:length], part.from)
-			if err != nil {
-				log.Fatalf("Cannot read chunk %x: %s\n", part.checksum, err.Error())
+				return err
 			} else if int64(read) != length {
-				log.Fatalln("Cannot read all required bytes from chunk")
+				return errors.New("cannot read all required bytes from chunk")
 			}
 
 			written, err := out.WriteAt(buffer[:length], offset)
 			if err != nil {
-				log.Fatalln("Cannot write to output file:", err)
+				return err
 			} else if int64(written) != length {
-				log.Fatalln("Cannot write all bytes to output file")
-			}
-
-			if err := chunk.Close(); err != nil {
-				log.Fatalln("Cannot close file:", err)
+				return errors.New("cannot write all bytes to output file")
 			}
 		}
 
@@ -65,13 +57,13 @@ func export(manifestFile, outputFile string) error {
 
 	err = out.Close()
 	if err != nil {
-		log.Fatalln("Cannot close output file")
+		return err
 	}
 
 	return nil
 }
 
-// Wipe output file (truncate to zero, then to target size)
+// truncateExportFile wipes the output file (truncate to zero, then to target size)
 func truncateExportFile(outputFile string, size int64) error {
 	if _, err := os.Stat(outputFile); err != nil {
 		file, err := os.Create(outputFile)

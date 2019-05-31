@@ -100,7 +100,8 @@ const (
 
 	// $Bitmap file
 	ntfsBitmapFileEntryIndex            = 6
-	ntfsBitmapMinSparseClusters         = 8 // arbitrary number
+	ntfsBitmapMinSparseClusters         = 4 // arbitrary number
+	ntfsBitsPerByte                     = 8
 
 	// Attribute header / footer (relative to attribute offset)
 	// https://flatcap.org/linux-ntfs/ntfs/concepts/attribute_header.html
@@ -185,7 +186,7 @@ func (d *ntfsChunker) Dedup() (*manifest, error) {
 	}
 
 	// Dedup the rest (gap areas)
-	if err := d.dedupRest(); err != nil {
+	if err := d.dedupGaps(); err != nil {
 		return nil, err
 	}
 
@@ -388,7 +389,7 @@ func (d *ntfsChunker) readRuns(entry []byte, offset int64) []run {
 }
 
 func (d *ntfsChunker) dedupFile(entry *entry) error {
-	Debugf("- Deduping FILE\n")
+	Debugf("Deduping FILE entry at offset %d\n", entry.offset)
 
 	remainingToEndOfFile := entry.dataSize
 
@@ -397,11 +398,11 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 	parts := make(map[int64]*chunkPart, 0)
 
 	for _, run := range entry.runs {
-		Debugf("  - Processing run at cluster %d, offset %d, cluster count = %d, size = %d\n",
+		Debugf("- Processing run at cluster %d, offset %d, cluster count = %d, size = %d\n",
 			run.firstCluster, run.fromOffset, run.clusterCount, run.size)
 
 		if run.sparse {
-			Debugf("    -> Sparse run, skipping %d bytes\n", d.clusterSize * run.clusterCount)
+			Debugf("- Sparse run, skipping %d bytes\n", d.clusterSize * run.clusterCount)
 			remainingToEndOfFile -= d.clusterSize * run.clusterCount
 		} else {
 			runOffset := run.fromOffset
@@ -414,7 +415,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 				remainingToFullChunk := chunk.Remaining()
 				runBytesMaxToBeRead := minInt64(minInt64(remainingToEndOfRun, remainingToFullChunk), int64(len(buffer)))
 
-				Debugf("    -> Reading disk section at offset %d to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
+				Debugf("- Reading disk section at offset %d to max %d bytes (remaining to end of run = %d, remaining to full chunk = %d, run buffer size = %d)\n",
 					runOffset, runBytesMaxToBeRead, remainingToEndOfRun, remainingToFullChunk, len(buffer))
 
 				runBytesRead, err := d.reader.ReadAt(buffer[:runBytesMaxToBeRead], d.start + runOffset)
@@ -424,7 +425,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 
 				// Add run to chunk(s)
 				if debug {
-					Debugf("  - bytes read = %d, current chunk size = %d, chunk max = %d\n",
+					Debugf("- Bytes read = %d, current chunk size = %d, chunk max = %d\n",
 						runBytesRead, chunk.Size(), chunkSizeMaxBytes)
 				}
 
@@ -437,22 +438,24 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 
 				chunk.Write(buffer[:runBytesRead])
 
-				Debugf("  -> adding %d bytes to chunk, new chunk size is %d\n", runBytesRead, chunk.Size())
+				Debugf("- Adding %d bytes to chunk, new chunk size is %d\n", runBytesRead, chunk.Size())
 
 				// Emit full chunk, write file and add to chunk map
 				if chunk.Full() {
-					Debugf("  -> emmitting full chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
+					Debugf("- Chunk full. Emitting chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
 
 					// Add parts to disk map
 					for partOffset, part := range parts {
 						part.checksum = chunk.Checksum()
+						Debugf("- Adding disk section %d - %d, mapping to chunk %x, offset %d - %d\n",
+							partOffset, partOffset + part.to - part.from, part.checksum, part.from, part.to)
 						d.manifest.Add(partOffset, part)
 					}
 
 					parts = make(map[int64]*chunkPart, 0) // clear!
 
 					// Write chunk
-					if err := d.store.WriteChunk(chunk); err != nil {
+					if err := d.store.Write(chunk); err != nil {
 						return err
 					}
 
@@ -462,20 +465,38 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 				remainingToEndOfRun -= int64(runBytesRead)
 				runOffset += int64(runBytesRead)
 			}
+
+			// Add sparse section for files that are not cluster-aligned (most files!)
+			// FIXME This works but is untested!
+			if !d.exact {
+				if runOffset % d.sectorSize != 0 {
+					remainingToEndOfCluster := d.sectorSize - runOffset % d.sectorSize
+					Debugf("- File end is not cluster aligned, emitting sparse section %d - %d\n",
+						runOffset, runOffset + remainingToEndOfCluster)
+
+					d.manifest.Add(runOffset, &chunkPart{
+						checksum: nil,
+						from: 0,
+						to: remainingToEndOfCluster,
+						kind: kindSparse,
+					})
+				}
+			}
 		}
 	}
 
 	// Finish last chunk
 	if chunk.Size() > 0 {
-		Debugf("  -> emmitting LAST chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
-
 		// Add parts to disk map
 		for partOffset, part := range parts {
 			part.checksum = chunk.Checksum()
+			Debugf("- Adding disk section %d - %d, mapping to chunk %x, offset %d - %d\n",
+				partOffset, partOffset + part.to - part.from, part.checksum, part.from, part.to)
 			d.manifest.Add(partOffset, part)
 		}
 
-		if err := d.store.WriteChunk(chunk); err != nil {
+		Debugf("- End of file. Emitting last chunk %x, size = %d\n", chunk.Checksum(), chunk.Size())
+		if err := d.store.Write(chunk); err != nil {
 			return err
 		}
 	}
@@ -483,6 +504,11 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 	return nil
 }
 
+// dedupUnused reads the NTFS $Bitmap file to find unused clusters and
+// creates sparse entry in the manifest for them.
+//
+// The logic is a little simplified right now, as it treats the bit-map
+// as a byte-map, only looking at 8 empty clusters in a row (= 8 bits, 1 byte).
 func (d *ntfsChunker) dedupUnused(mft *entry) error {
 	// Find $Bitmap entry
 	var err error
@@ -543,11 +569,11 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 				} else {
 					if lastWasZero {
 						lastWasZero = false
-						isLargeEnough := (sparseClusterGroupEnd-sparseClusterGroupStart)*8 > ntfsBitmapMinSparseClusters
+						isLargeEnough := (sparseClusterGroupEnd-sparseClusterGroupStart)*ntfsBitsPerByte > ntfsBitmapMinSparseClusters
 
 						if isLargeEnough {
-							sparseSectionStartOffset := sparseClusterGroupStart * d.clusterSize * 8
-							sparseSectionEndOffset := sparseClusterGroupEnd * d.clusterSize * 8
+							sparseSectionStartOffset := sparseClusterGroupStart * d.clusterSize * ntfsBitsPerByte
+							sparseSectionEndOffset := sparseClusterGroupEnd * d.clusterSize * ntfsBitsPerByte
 							sparseSectionLength := sparseSectionEndOffset - sparseSectionStartOffset
 
 							Debugf("- Detected large sparse section %d - %d (%d bytes)\n",
@@ -574,7 +600,7 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 	return nil
 }
 
-func (d *ntfsChunker) dedupRest() error {
+func (d *ntfsChunker) dedupGaps() error {
 	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.sizeInBytes, d.manifest)
 
 	gapManifest, err := chunker.Dedup()

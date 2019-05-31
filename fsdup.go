@@ -6,9 +6,11 @@ import (
 	"os"
 )
 
-// TODO [LOW] Sparsify all runs automatically
-// TODO rename "size" to "length"
-// TODO chunkPart.to|from -> offset|length
+// TODO [LOW] Find zeros in gaps, mark as sparse
+// TODO [LOW] Find zeros in FILE runs, mark as sparse
+// TODO [LOW] rename "size" to "length"
+// TODO [LOW] chunkPart.to|from -> offset|length
+// TODO [LOW] different debug levels -d -dd -ddd -q
 
 func exit(code int, message string) {
 	fmt.Println(message)

@@ -143,11 +143,18 @@ func (m *manifest) Print() {
 		part := m.diskMap[offset]
 
 		if part.checksum == nil {
-			fmt.Printf("kind%d diskoff %013d - %013d len %-10d -> sparse\n",
-				part.kind, offset, offset + part.to - part.from, part.to - part.from)
+			fmt.Printf("diskoff %013d - %013d len %-10d    sparse     -\n",
+				offset, offset + part.to - part.from, part.to - part.from)
 		} else {
-			fmt.Printf("kind%d diskoff %013d - %013d len %-10d -> chunk %64x chunkoff %10d - %10d\n",
-				part.kind, offset, offset + part.to - part.from, part.to - part.from, part.checksum, part.from, part.to)
+			kind := "unknown"
+			if part.kind == kindGap {
+				kind = "gap"
+			} else if part.kind == kindFile {
+				kind = "file"
+			}
+
+			fmt.Printf("diskoff %013d - %013d len %-10d    %-10s chunk %64x chunkoff %10d - %10d\n",
+				offset, offset + part.to - part.from, part.to - part.from, kind, part.checksum, part.from, part.to)
 		}
 	}
 }
