@@ -29,8 +29,10 @@ func (idx *cephChunkStore) Write(chunk *chunk) error {
 	checksumStr := chunk.ChecksumString()
 
 	if _, ok := idx.chunkMap[checksumStr]; !ok {
-		if err := idx.ctx.Write(checksumStr, chunk.Data(), 0); err != nil {
-			return err
+		if _, err := idx.ctx.Stat(checksumStr); err != nil {
+			if err := idx.ctx.Write(checksumStr, chunk.Data(), 0); err != nil {
+				return err
+			}
 		}
 
 		idx.chunkMap[chunk.ChecksumString()] = true

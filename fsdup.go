@@ -81,7 +81,10 @@ func indexCommand(args []string) {
 	if *noWriteFlag {
 		store = NewDummyChunkStore()
 	} else {
-		store = NewFileChunkStore(*storeFlag)
+		store, err = createChunkStore(*storeFlag)
+		if err != nil {
+			exit(2, "Invalid syntax: " + string(err.Error()))
+		}
 	}
 
 	// Go index!
@@ -104,7 +107,10 @@ func mapCommand(args []string) {
 	debug = *debugFlag
 	filename := flags.Arg(0)
 
-	store := NewFileChunkStore(*storeFlag)
+	store, err := createChunkStore(*storeFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
 
 	if err := mapDevice(filename, store); err != nil {
 		exit(2, "Cannot map drive file: " + string(err.Error()))
@@ -126,7 +132,10 @@ func exportCommand(args []string) {
 	manifest := flags.Arg(0)
 	outfile := flags.Arg(1)
 
-	store := NewFileChunkStore(*storeFlag)
+	store, err := createChunkStore(*storeFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
 
 	if err := export(manifest, store, outfile); err != nil {
 		exit(2, "Cannot export file: " + string(err.Error()))
