@@ -1,10 +1,14 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"github.com/samalba/buse-go/buse"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 )
 
 type manifestImage struct {
@@ -112,10 +116,15 @@ func mapDevice(manifestFile string, store chunkStore) error {
 		return err
 	}
 
-	Debugf("Creating device /dev/nbd0 ...\n")
+	deviceName, err := findNbdDevice()
+	if err != nil {
+		return err
+	}
+
+	Debugf("Creating device %s ...\n", deviceName)
 
 	image := NewManifestImage(manifest, store)
-	device, err := buse.CreateDevice("/dev/nbd0", uint(manifest.Size()), image)
+	device, err := buse.CreateDevice(deviceName, uint(manifest.Size()), image)
 	if err != nil {
 		return err
 	}
@@ -137,4 +146,23 @@ func mapDevice(manifestFile string, store chunkStore) error {
 	device.Disconnect()
 
 	return nil
+}
+
+func findNbdDevice() (string, error) {
+	for i := 0; i < 32; i++ {
+		sizeFile := fmt.Sprintf("/sys/class/block/nbd%d/size", i)
+
+		if _, err := os.Stat(sizeFile); err == nil {
+			b, err := ioutil.ReadFile(sizeFile)
+			if err != nil {
+				return "", err
+			}
+
+			if strings.Trim(string(b), "\n") == "0" {
+				return fmt.Sprintf("/dev/nbd%d", i), nil
+			}
+		}
+	}
+
+	return "", errors.New("cannot find free nbd device, driver not loaded?")
 }
