@@ -15,6 +15,13 @@ Example
 $ fsdup index /dev/loop1 mydisk.manifest
   # Writes chunks to 'index' folder (default) and generates mydisk.manifest
 
+$ fsdup index -store /mnt/myindex ...
+  # Writes chunks to '/mnt/myindex' folder instead
+  
+$ fsdup index -store 'ceph:ceph.conf?pool=chunkindex' ...
+  # Writes chunks to Ceph pool 'chunkindex' instead, using 
+  # the 'ceph.conf' config file
+
 $ fsdup print mydisk.manifest
 idx 0000000000 diskoff 0000000000000 - 0000000196608 len 196608        gap        chunk a4bfc70231b80a636dfc2aeff92bfbc18c3225a424be097e88173d5fce1f68ae chunkoff          0 -     196608
 idx 0000000001 diskoff 0000000196608 - 0000039288832 len 39092224      sparse     -
