@@ -1,13 +1,13 @@
-package main
+package fsdup
 
 import "fmt"
 
 var (
-	debug = false // Toggle with -debug CLI flag!
+	Debug = false // Toggle with -debug CLI flag! // TODO fix this with debug/log levels
 )
 
 func Debugf(format string, args ...interface{}) {
-	if debug {
+	if Debug {
 		fmt.Printf(format, args...)
 	}
 }

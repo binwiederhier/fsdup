@@ -1,4 +1,4 @@
-package main
+package fsdup
 
 import (
 	"bytes"
@@ -22,7 +22,7 @@ const (
 	probeTypeBufferLength = 1024
 )
 
-func index(inputFile string, store chunkStore, manifestFile string, offset int64, exact bool, minSize int64) error {
+func Index(inputFile string, store ChunkStore, manifestFile string, offset int64, exact bool, minSize int64) error {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return err
@@ -30,7 +30,7 @@ func index(inputFile string, store chunkStore, manifestFile string, offset int64
 
 	defer file.Close()
 
-	var chunker chunker
+	var chunker Chunker
 
 	size, err := readFileSize(file, inputFile)
 	if err != nil {
@@ -59,7 +59,7 @@ func index(inputFile string, store chunkStore, manifestFile string, offset int64
 		return err
 	}
 
-	if debug {
+	if Debug {
 		Debugf("Manifest:\n")
 		manifest.Print()
 	}

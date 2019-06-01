@@ -1,11 +1,11 @@
-package main
+package fsdup
 
 import (
 	"errors"
 	"os"
 )
 
-func export(manifestFile string, store chunkStore, outputFile string) error {
+func Export(manifestFile string, store ChunkStore, outputFile string) error {
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err

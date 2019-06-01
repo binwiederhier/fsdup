@@ -1,4 +1,4 @@
-package main
+package fsdup
 
 import (
 	"bytes"
@@ -40,7 +40,7 @@ type ntfsChunker struct {
 	sectorSize        int64
 	sectorsPerCluster int64
 	clusterSize       int64
-	store             chunkStore
+	store             ChunkStore
 	manifest          *manifest
 }
 
@@ -65,7 +65,6 @@ type run struct {
 
 const (
 	chunkSizeMaxBytes      = 32 * 1024 * 1024
-	dedupFileSizeMinBytes  = 2 * 1024 * 1024
 
 	// NTFS boot sector (absolute aka relative to file system start)
 	ntfsBootRecordSize              = 512
@@ -130,7 +129,7 @@ const (
 
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
-func NewNtfsChunker(reader io.ReaderAt, store chunkStore, offset int64, exact bool, minSize int64) *ntfsChunker {
+func NewNtfsChunker(reader io.ReaderAt, store ChunkStore, offset int64, exact bool, minSize int64) *ntfsChunker {
 	return &ntfsChunker{
 		reader:   reader,
 		store:    store,
@@ -424,10 +423,8 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 				}
 
 				// Add run to chunk(s)
-				if debug {
-					Debugf("- Bytes read = %d, current chunk size = %d, chunk max = %d\n",
-						runBytesRead, chunk.Size(), chunkSizeMaxBytes)
-				}
+				Debugf("- Bytes read = %d, current chunk size = %d, chunk max = %d\n",
+					runBytesRead, chunk.Size(), chunkSizeMaxBytes)
 
 				parts[runOffset] = &chunkPart{
 					checksum: nil, // fill this when chunk is finalized!

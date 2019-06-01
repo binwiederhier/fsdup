@@ -1,11 +1,10 @@
-package main
+package fsdup
 
 import (
 	"io"
 )
 
 const (
-	gptProtectiveMbrLength = 512
 	gptSignatureMagic = "EFI PART"
 	gptSignatureOffset = 512
 	gptHeaderOffset = 512
@@ -23,7 +22,7 @@ const (
 
 type gptDiskChunker struct {
 	reader   io.ReaderAt
-	store    chunkStore
+	store    ChunkStore
 	start    int64
 	size     int64
 	exact    bool
@@ -31,7 +30,7 @@ type gptDiskChunker struct {
 	manifest *manifest
 }
 
-func NewGptDiskChunker(reader io.ReaderAt, store chunkStore, offset int64, size int64, exact bool, minSize int64) *gptDiskChunker {
+func NewGptDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size int64, exact bool, minSize int64) *gptDiskChunker {
 	return &gptDiskChunker{
 		reader:   reader,
 		store:    store,

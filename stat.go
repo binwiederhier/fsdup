@@ -1,4 +1,4 @@
-package main
+package fsdup
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-func printStats(manifestFiles []string) error {
+func Stat(manifestFiles []string) error {
 	totalImageSize := int64(0)
 	totalChunkSize := int64(0)
 	totalSparseSize := int64(0)

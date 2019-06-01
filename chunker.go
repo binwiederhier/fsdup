@@ -1,11 +1,15 @@
-package main
+package fsdup
 
 import (
 	"fmt"
 	"golang.org/x/crypto/blake2b"
 )
 
-type chunker interface {
+const (
+	DefaultDedupFileSizeMinBytes  = 2 * 1024 * 1024
+)
+
+type Chunker interface {
 	Dedup() (*manifest, error)
 }
 

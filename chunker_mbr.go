@@ -1,4 +1,4 @@
-package main
+package fsdup
 
 import (
 	"io"
@@ -19,7 +19,7 @@ const (
 
 type mbrDiskChunker struct {
 	reader   io.ReaderAt
-	store    chunkStore
+	store    ChunkStore
 	start    int64
 	size     int64
 	exact    bool
@@ -27,7 +27,7 @@ type mbrDiskChunker struct {
 	manifest *manifest
 }
 
-func NewMbrDiskChunker(reader io.ReaderAt, store chunkStore, offset int64, size int64, exact bool, minSize int64) *mbrDiskChunker {
+func NewMbrDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size int64, exact bool, minSize int64) *mbrDiskChunker {
 	return &mbrDiskChunker{
 		reader:   reader,
 		store:    store,

@@ -6,5 +6,9 @@ require (
 	github.com/ceph/go-ceph v0.0.0-20181217221554-e32f9f0f2e94
 	github.com/golang/protobuf v1.3.1
 	github.com/samalba/buse-go v0.0.0-20171001000303-9289eeeb8c7f
-	golang.org/x/crypto v0.0.0-20190426145343-a29dc8fdc734
+	golang.org/x/crypto v0.0.0-20190530122614-20be4c3c3ed5
+	golang.org/x/net v0.0.0-20190522155817-f3200d17e092 // indirect
+	golang.org/x/sys v0.0.0-20190531175056-4c3a928424d2 // indirect
+	golang.org/x/text v0.3.2 // indirect
+	golang.org/x/tools v0.0.0-20190601110225-0abef6e9ecb8 // indirect
 )

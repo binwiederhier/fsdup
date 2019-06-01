@@ -1,4 +1,4 @@
-package main
+package fsdup
 
 import (
 	"errors"
@@ -12,12 +12,12 @@ import (
 )
 
 type manifestImage struct {
-	manifest *manifest
-	store chunkStore
+	manifest    *manifest
+	store       ChunkStore
 	breakpoints []int64
 }
 
-func NewManifestImage(manifest *manifest, store chunkStore) *manifestImage {
+func NewManifestImage(manifest *manifest, store ChunkStore) *manifestImage {
 	return &manifestImage{
 		manifest: manifest,
 		store: store,
@@ -110,7 +110,7 @@ func (d *manifestImage) Trim(off, length uint) error {
 	return nil
 }
 
-func mapDevice(manifestFile string, store chunkStore) error {
+func Map(manifestFile string, store ChunkStore) error {
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err

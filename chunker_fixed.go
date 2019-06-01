@@ -1,4 +1,4 @@
-package main
+package fsdup
 
 import (
 	"fmt"
@@ -7,18 +7,18 @@ import (
 
 type fixedChunker struct {
 	reader      io.ReaderAt
-	store       chunkStore
+	store       ChunkStore
 	start       int64
 	sizeInBytes int64
 	skip        *manifest
 }
 
-func NewFixedChunker(reader io.ReaderAt, index chunkStore, offset int64, size int64) *fixedChunker {
+func NewFixedChunker(reader io.ReaderAt, index ChunkStore, offset int64, size int64) *fixedChunker {
 	skip := NewManifest()
 	return NewFixedChunkerWithSkip(reader, index, offset, size, skip)
 }
 
-func NewFixedChunkerWithSkip(reader io.ReaderAt, store chunkStore, offset int64, size int64, skip *manifest) *fixedChunker {
+func NewFixedChunkerWithSkip(reader io.ReaderAt, store ChunkStore, offset int64, size int64, skip *manifest) *fixedChunker {
 	return &fixedChunker{
 		reader:      reader,
 		store:       store,
