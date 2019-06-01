@@ -57,10 +57,10 @@ Syntax:
   fsdup stat [-debug] MANIFEST...
 ```
 
-License
--------
-[Apache License 2.0](LICENSE)
-
 Author
 ------
 Philipp Heckel
+
+License
+-------
+[Apache License 2.0](LICENSE)
