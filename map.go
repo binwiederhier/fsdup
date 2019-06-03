@@ -40,7 +40,7 @@ func (d *manifestImage) ReadAt(p []byte, off uint) error {
 
 		if partStart <= requestedStart && requestedStart < partEnd {
 			breakpointIndex = i
-			Debugf("breakpoint index = %d\n", breakpointIndex)
+			debugf("breakpoint index = %d\n", breakpointIndex)
 			break
 		}
 	}
@@ -121,7 +121,7 @@ func Map(manifestFile string, store ChunkStore) error {
 		return err
 	}
 
-	Debugf("Creating device %s ...\n", deviceName)
+	debugf("Creating device %s ...\n", deviceName)
 
 	image := NewManifestImage(manifest, store)
 	device, err := buse.CreateDevice(deviceName, uint(manifest.Size()), image)
@@ -142,7 +142,7 @@ func Map(manifestFile string, store ChunkStore) error {
 	<-sig
 
 	// Received SIGTERM, cleanup
-	Debugf("SIGINT, disconnecting...\n")
+	debugf("SIGINT, disconnecting...\n")
 	device.Disconnect()
 
 	return nil

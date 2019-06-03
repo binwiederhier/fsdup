@@ -30,9 +30,9 @@ func Export(manifestFile string, store ChunkStore, outputFile string) error {
 		length := part.to - part.from
 
 		if sparse {
-			Debugf("%013d Skipping sparse section of %d bytes\n", offset, length)
+			debugf("%013d Skipping sparse section of %d bytes\n", offset, length)
 		} else {
-			Debugf("%013d Writing chunk %x, offset %d - %d (size %d)\n", offset, part.checksum, part.from, part.to, length)
+			debugf("%013d Writing chunk %x, offset %d - %d (size %d)\n", offset, part.checksum, part.from, part.to, length)
 
 			read, err := store.ReadAt(part.checksum, buffer[:length], part.from)
 			if err != nil {

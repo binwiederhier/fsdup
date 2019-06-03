@@ -9,6 +9,10 @@ import (
 func Stat(manifestFiles []string) error {
 	totalImageSize := int64(0)
 	totalChunkSize := int64(0)
+	//totalFileChunkSize := int64(0)
+	//totalFileChunkCount := int64(0)
+	//totalGapChunkSize := int64(0)
+	//totalGapChunkCount := int64(0)
 	totalSparseSize := int64(0)
 	usedSizes := make([]int64, 0)
 

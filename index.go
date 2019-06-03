@@ -60,7 +60,7 @@ func Index(inputFile string, store ChunkStore, manifestFile string, offset int64
 	}
 
 	if Debug {
-		Debugf("Manifest:\n")
+		debugf("Manifest:\n")
 		manifest.Print()
 	}
 

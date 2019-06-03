@@ -43,7 +43,7 @@ func NewGptDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size 
 }
 
 func (d *gptDiskChunker) Dedup() (*manifest, error) {
-	Debugf("Deduping GPT disk ...\n")
+	statusf("Detected GPT disk ...\n")
 
 	if err := d.dedupNtfsPartitions(); err != nil {
 		return nil, err
@@ -53,6 +53,7 @@ func (d *gptDiskChunker) Dedup() (*manifest, error) {
 		return nil, err
 	}
 
+	statusf("GPT disk fully indexed\n")
 	return d.manifest, nil
 }
 
@@ -80,7 +81,7 @@ func (d *gptDiskChunker) dedupNtfsPartitions() error {
 
 		partitionFirstSector := parseUintLE(buffer, entryOffset+gptEntryFirstSectorRelativeOffset, gptEntryFirstSectorRelativeLength)
 		partitionOffset := d.start + partitionFirstSector*gptLogicalSectorSize
-		Debugf("Reading GPT entry %d, partition begins at sector %d, offset %d\n",
+		debugf("Reading GPT entry %d, partition begins at sector %d, offset %d\n",
 			i+1, partitionFirstSector, partitionOffset)
 
 		if partitionOffset == 0 {
@@ -93,7 +94,7 @@ func (d *gptDiskChunker) dedupNtfsPartitions() error {
 		}
 
 		if partitionType == typeNtfs {
-			Debugf("NTFS partition found at offset %d\n", partitionOffset)
+			debugf("NTFS partition found at offset %d\n", partitionOffset)
 			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.minSize)
 			manifest, err := ntfs.Dedup()
 			if err != nil {

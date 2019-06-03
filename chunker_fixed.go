@@ -40,6 +40,10 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 	chunk := NewChunk()
 	buffer := make([]byte, chunkSizeMaxBytes)
 
+	statusf("Creating gap chunks ...")
+	chunkBytes := int64(0)
+	chunkCount := int64(0)
+
 	for currentOffset < d.sizeInBytes {
 		hasNextBreakpoint := breakpointIndex < len(breakpoints)
 
@@ -69,7 +73,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 					return nil, err
 				}
 
-				Debugf("offset %d - %d, NEW chunk %x, size %d\n",
+				debugf("offset %d - %d, NEW chunk %x, size %d\n",
 					currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
 
 				out.Add(currentOffset, &chunkPart{
@@ -78,6 +82,10 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 					to: chunk.Size(),
 					kind: kindGap,
 				})
+
+				chunkBytes += chunk.Size()
+				chunkCount++
+				statusf("Creating gap chunk(s) (%d chunk(s), %s) ...", chunkCount, convertToHumanReadable(chunkBytes))
 
 				currentOffset = chunkEndOffset
 			} else {
@@ -109,7 +117,11 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 						kind: kindGap,
 					})
 
-					Debugf("offset %d - %d, NEW2 chunk %x, size %d\n",
+					chunkBytes += chunk.Size()
+					chunkCount++
+					statusf("Creating gap chunk(s) (%d chunk(s), %s) ...", chunkCount, convertToHumanReadable(chunkBytes))
+
+					debugf("offset %d - %d, NEW2 chunk %x, size %d\n",
 						currentOffset, currentOffset + bytesToBreakpoint, chunk.Checksum(), chunk.Size())
 
 					currentOffset += bytesToBreakpoint
@@ -121,7 +133,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				part := d.skip.Get(breakpoint)
 				partSize := part.to - part.from
 
-				Debugf("offset %d - %d, size %d  -> FILE chunk %x, offset %d - %d\n",
+				debugf("offset %d - %d, size %d  -> FILE chunk %x, offset %d - %d\n",
 					currentOffset, currentOffset + partSize, partSize, part.checksum, part.from, part.to)
 
 				currentOffset += partSize
@@ -145,7 +157,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				return nil, err
 			}
 
-			Debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
+			debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
 				currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
 
 			out.Add(currentOffset, &chunkPart{
@@ -155,9 +167,14 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				kind: kindGap,
 			})
 
+			chunkBytes += chunk.Size()
+			chunkCount++
+			statusf("Creating gap chunks (%d chunk(s), %s) ...", chunkCount, convertToHumanReadable(chunkBytes))
+
 			currentOffset = chunkEndOffset
 		}
 	}
 
+	statusf("Indexed %d gap chunk(s) (%s)\n", chunkCount, convertToHumanReadable(chunkBytes))
 	return out, nil
 }

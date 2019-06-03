@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // TODO [LOW] Find zeros in gaps, mark as sparse
@@ -18,6 +19,49 @@ import (
 // TODO [LOW] chunkPart.to|from -> offset|length
 // TODO [LOW] different debug levels -d -dd -ddd -q
 
+var (
+	buildversion = "0.0.0-DEV"
+	builddate = "0"
+	buildcommit = "dev version"
+)
+
+func main() {
+	versionFlag := flag.Bool("version", false, "Displays the version of this program")
+	debugFlag := flag.Bool("debug", false, "Enable debug information")
+	quietFlag := flag.Bool("quiet", false, "Enable debug information")
+
+	flag.Parse()
+
+	fsdup.Debug = *debugFlag
+	fsdup.Quiet = *quietFlag
+
+	if *versionFlag {
+		displayVersion()
+	}
+
+	if flag.NArg() < 2 {
+		usage()
+	}
+
+	command := flag.Args()[0]
+	args := flag.Args()[1:]
+
+	switch command {
+	case "index":
+		indexCommand(args)
+	case "map":
+		mapCommand(args)
+	case "export":
+		exportCommand(args)
+	case "print":
+		printCommand(args)
+	case "stat":
+		statCommand(args)
+	default:
+		usage()
+	}
+}
+
 func exit(code int, message string) {
 	fmt.Println(message)
 	os.Exit(code)
@@ -25,36 +69,27 @@ func exit(code int, message string) {
 
 func usage() {
 	fmt.Println("Syntax:")
-	fmt.Println("  fsdup index [-debug] [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
-	fmt.Println("  fsdup map [-debug] MANIFEST")
-	fmt.Println("  fsdup export [-debug] MANIFEST OUTFILE")
-	fmt.Println("  fsdup print [-debug] MANIFEST")
-	fmt.Println("  fsdup stat [-debug] MANIFEST...")
+	fmt.Println("  fsdup [-quiet] [-debug] COMMAND [options ...]")
+	fmt.Println("")
+	fmt.Println("Commands:")
+	fmt.Println("  index [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
+	fmt.Println("  map MANIFEST")
+	fmt.Println("  export MANIFEST OUTFILE")
+	fmt.Println("  print MANIFEST")
+	fmt.Println("  stat MANIFEST...")
 
 	os.Exit(1)
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		usage()
-	}
+func displayVersion() {
+	unixtime, _ := strconv.Atoi(builddate)
+	datestr := time.Unix(int64(unixtime), 0).Format("01/02/06 15:04")
 
-	command := os.Args[1]
+	fmt.Printf("fsdup version %s, built at %s from %s\n", buildversion, datestr, buildcommit)
+	fmt.Printf("Distributed under the Apache License 2.0, see LICENSE file for details\n")
+	fmt.Printf("Copyright (C) 2019 Philipp Heckel\n")
 
-	switch command {
-	case "index":
-		indexCommand(os.Args[2:])
-	case "map":
-		mapCommand(os.Args[2:])
-	case "export":
-		exportCommand(os.Args[2:])
-	case "print":
-		printCommand(os.Args[2:])
-	case "stat":
-		statCommand(os.Args[2:])
-	default:
-		usage()
-	}
+	os.Exit(1)
 }
 
 func indexCommand(args []string) {
@@ -72,7 +107,10 @@ func indexCommand(args []string) {
 		usage()
 	}
 
-	fsdup.Debug = *debugFlag
+	if *debugFlag {
+		fsdup.Debug = *debugFlag
+	}
+
 	offset := *offsetFlag
 	exact := *exactFlag
 	minSize, err := convertToBytes(*minSizeFlag)
@@ -110,7 +148,10 @@ func mapCommand(args []string) {
 		usage()
 	}
 
-	fsdup.Debug = *debugFlag
+	if *debugFlag {
+		fsdup.Debug = *debugFlag
+	}
+
 	filename := flags.Arg(0)
 
 	store, err := createChunkStore(*storeFlag)
@@ -134,7 +175,10 @@ func exportCommand(args []string) {
 		usage()
 	}
 
-	fsdup.Debug = *debugFlag
+	if *debugFlag {
+		fsdup.Debug = *debugFlag
+	}
+
 	manifest := flags.Arg(0)
 	outfile := flags.Arg(1)
 
@@ -158,7 +202,10 @@ func printCommand(args []string) {
 		usage()
 	}
 
-	fsdup.Debug = *debugFlag
+	if *debugFlag {
+		fsdup.Debug = *debugFlag
+	}
+
 	manifest := flags.Arg(0)
 
 	m, err := fsdup.NewManifestFromFile(manifest)
@@ -179,7 +226,10 @@ func statCommand(args []string) {
 		usage()
 	}
 
-	fsdup.Debug = *debugFlag
+	if *debugFlag {
+		fsdup.Debug = *debugFlag
+	}
+
 	manifests := flags.Args()
 
 	if err := fsdup.Stat(manifests); err != nil {

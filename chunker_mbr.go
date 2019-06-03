@@ -40,7 +40,7 @@ func NewMbrDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size 
 }
 
 func (d *mbrDiskChunker) Dedup() (*manifest, error) {
-	Debugf("Deduping MBR disk ...\n")
+	statusf("Detected MBR disk\n")
 
 	if err := d.dedupNtfsPartitions(); err != nil {
 		return nil, err
@@ -50,6 +50,7 @@ func (d *mbrDiskChunker) Dedup() (*manifest, error) {
 		return nil, err
 	}
 
+	statusf("MBR disk fully indexed\n")
 	return d.manifest, nil
 }
 
@@ -65,7 +66,7 @@ func (d *mbrDiskChunker) dedupNtfsPartitions() error {
 
 		partitionFirstSector := parseUintLE(buffer, entryOffset+mbrFirstSectorRelativeOffset, mbrEntryFirstSectorRelativeLength)
 		partitionOffset := d.start + partitionFirstSector*mbrSectorSize
-		Debugf("Reading MBR entry at %d, partition begins at sector %d, offset %d\n",
+		debugf("Reading MBR entry at %d, partition begins at sector %d, offset %d\n",
 			entryOffset, partitionFirstSector, partitionOffset)
 
 		if partitionOffset == 0 {
@@ -78,7 +79,6 @@ func (d *mbrDiskChunker) dedupNtfsPartitions() error {
 		}
 
 		if partitionType == typeNtfs {
-			Debugf("NTFS partition found at offset %d\n", partitionOffset)
 			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.minSize)
 			manifest, err := ntfs.Dedup()
 			if err != nil {
