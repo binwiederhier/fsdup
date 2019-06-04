@@ -77,6 +77,28 @@ func (m *manifest) Breakpoints() []int64 {
 	return breakpoints
 }
 
+// Chunks returns a map of chunks in this manifest. It does not contain the chunk data.
+// The key is a hex representation of the chunk checksum.
+func (m *manifest) Chunks() map[string]*chunk {
+	chunkMap := make(map[string]*chunk, 0)
+
+	for _, part := range m.diskMap {
+		// This is a weird way to get the chunk size, but hey ...
+		checksumStr := fmt.Sprintf("%x", part.checksum)
+
+		if _, ok := chunkMap[checksumStr]; !ok {
+			chunkMap[checksumStr] = &chunk{
+				checksum: part.checksum,
+				size: part.to,
+			}
+		} else {
+			chunkMap[checksumStr].size = maxInt64(chunkMap[checksumStr].size, part.to)
+		}
+	}
+
+	return chunkMap
+}
+
 func (m *manifest) Add(offset int64, part *chunkPart) {
 	m.diskMap[offset] = part
 }

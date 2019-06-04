@@ -75,8 +75,8 @@ func usage() {
 	fmt.Println("")
 	fmt.Println("Commands:")
 	fmt.Println("  index [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
-	fmt.Println("  map MANIFEST")
-	fmt.Println("  export MANIFEST OUTFILE")
+	fmt.Println("  map [-store STORE] [-target FILE] MANIFEST")
+	fmt.Println("  export [-store STORE] MANIFEST OUTFILE")
 	fmt.Println("  print MANIFEST")
 	fmt.Println("  stat MANIFEST...")
 
@@ -143,6 +143,8 @@ func mapCommand(args []string) {
 	flags := flag.NewFlagSet("map", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
+	targetFlag := flags.String("target", "", "Target device or file used for local caching and live migration")
+	readOnlyFlag := flags.Bool("readonly", false, "If set, the mapped drive will be read only")
 
 	flags.Parse(args)
 
@@ -154,14 +156,21 @@ func mapCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
-	filename := flags.Arg(0)
+	manifestFile := flags.Arg(0)
 
 	store, err := createChunkStore(*storeFlag)
 	if err != nil {
 		exit(2, "Invalid syntax: " + string(err.Error()))
 	}
 
-	if err := fsdup.Map(filename, store); err != nil {
+	targetFile := *targetFlag
+	readOnly := *readOnlyFlag
+
+	if !readOnly && targetFile == "" {
+		exit(2, "Must specify either -readonly or -target")
+	}
+
+	if err := fsdup.Map(manifestFile, store, targetFile, readOnly); err != nil {
 		exit(2, "Cannot map drive file: " + string(err.Error()))
 	}
 }

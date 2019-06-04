@@ -3,7 +3,7 @@ package fsdup
 import (
 	"errors"
 	"fmt"
-	"github.com/samalba/buse-go/buse"
+	"github.com/binwiederhier/buse-go/buse"
 	"io/ioutil"
 	"log"
 	"os"
@@ -11,22 +11,32 @@ import (
 	"strings"
 )
 
+// Read:
+//       written? ---n---> cached? ---n---> store
+//          | y
+
 type manifestImage struct {
 	manifest    *manifest
 	store       ChunkStore
+	cache       ChunkStore
 	breakpoints []int64
+	chunks      map[string]*chunk
+	buffer      []byte
 }
 
 func NewManifestImage(manifest *manifest, store ChunkStore) *manifestImage {
 	return &manifestImage{
 		manifest: manifest,
 		store: store,
+		cache: NewFileChunkStore("cache"),
 		breakpoints: manifest.Breakpoints(), // cache !
+		chunks: manifest.Chunks(), // cache !
+		buffer: make([]byte, chunkSizeMaxBytes),
 	}
 }
 
 func (d *manifestImage) ReadAt(p []byte, off uint) error {
-	log.Printf("\nREAD offset:%d len:%d\n", off, len(p))
+	// debugf("READ offset:%d len:%d\n", off, len(p))
 
 	// Find first chunk
 	// FIXME Linear search is inefficient; use binary search instead, or something better.
@@ -40,7 +50,7 @@ func (d *manifestImage) ReadAt(p []byte, off uint) error {
 
 		if partStart <= requestedStart && requestedStart < partEnd {
 			breakpointIndex = i
-			debugf("breakpoint index = %d\n", breakpointIndex)
+			//debugf("breakpoint index = %d\n", breakpointIndex)
 			break
 		}
 	}
@@ -62,7 +72,7 @@ func (d *manifestImage) ReadAt(p []byte, off uint) error {
 		var err error
 
 		if part.checksum == nil {
-			log.Printf("- Reading disk offset %d - %d as sparse chunk (len %d)\n",
+			debugf("Reading disk offset %d - %d as sparse chunk (len %d)\n",
 				currentOffset, currentOffset + bytesToRead, bytesToRead)
 
 			// Note: This assumes that the buffer "p" is empty!
@@ -70,13 +80,26 @@ func (d *manifestImage) ReadAt(p []byte, off uint) error {
 
 			read = int(bytesToRead)
 		} else {
-			log.Printf("- Reading disk offset %d - %d to buffer %d - %d from chunk %x, offset %d - %d (len %d)\n",
+			debugf("Reading disk offset %d - %d to buffer %d - %d from chunk %x, offset %d - %d (len %d)\n",
 				currentOffset, currentOffset + bytesToRead, bufferOffset, bufferOffset + bytesToRead,
 				part.checksum, partOffset, partOffset + bytesToRead, bytesToRead)
 
-			read, err = d.store.ReadAt(part.checksum, p[bufferOffset:bufferOffset+bytesToRead], partOffset)
+			read, err = d.cache.ReadAt(part.checksum, p[bufferOffset:bufferOffset+bytesToRead], partOffset)
 			if err != nil {
-				return err
+				debugf("Chunk %x not in cache. Retrieving full chunk ...\n", part.checksum)
+
+				// Read entire chunk, store to cache
+				chunk := d.chunks[fmt.Sprintf("%x", part.checksum)]
+				chunk.data = make([]byte, chunk.size)
+
+				// FIXME: This will fill up the local cache will all chunks and never delete it
+				read, err = d.store.ReadAt(part.checksum, chunk.data, 0)
+				if err := d.cache.Write(chunk); err != nil {
+					return err
+				}
+
+				// Copy to target buffer
+				copy(p[bufferOffset:bufferOffset+bytesToRead], chunk.data[partOffset:partOffset+bytesToRead])
 			}
 		}
 
@@ -110,7 +133,7 @@ func (d *manifestImage) Trim(off, length uint) error {
 	return nil
 }
 
-func Map(manifestFile string, store ChunkStore) error {
+func Map(manifestFile string, store ChunkStore, targetFile string, readOnly bool) error {
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err

@@ -1,3 +1,6 @@
+github.com/binwiederhier/buse-go v0.0.0-20171001000303-9289eeeb8c7f/go.mod h1:LT1PPZZ/xW98ibFT1olG8UziTSJCFmnjQWo/zegotzE=
+github.com/binwiederhier/buse-go v0.0.0-20190604150725-ed7b3191d407 h1:kgnolmg2GgrbDdESdAwm8E+nGPtSLqx9aOSeWdfammc=
+github.com/binwiederhier/buse-go v0.0.0-20190604150725-ed7b3191d407/go.mod h1:LT1PPZZ/xW98ibFT1olG8UziTSJCFmnjQWo/zegotzE=
 github.com/ceph/go-ceph v0.0.0-20181217221554-e32f9f0f2e94 h1:m3fyIqe28zGggNHc9hE2R3Zk/CJC3Lg8KFSNfXu8mpk=
 github.com/ceph/go-ceph v0.0.0-20181217221554-e32f9f0f2e94/go.mod h1:DhWkbjUxN0QRc0xQvpI9QhzqQSzYysRuZVcqSfiStds=
 github.com/golang/protobuf v1.3.1 h1:YF8+flBXS5eO826T4nzqPrxfhQThhXl0YzfuUPu4SBg=
