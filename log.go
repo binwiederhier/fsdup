@@ -33,12 +33,12 @@ func statusf(format string, args ...interface{}) {
 		status := fmt.Sprintf(format, args...)
 		statusNewLength := len(status)
 
-		// Wipe olf status
 		if statusNewLength < statusLastLength {
-			fmt.Print("\r" + strings.Repeat(" ", statusLastLength) + "\r")
+			fmt.Printf("\r%s\r%s", strings.Repeat(" ", statusLastLength), status)
+		} else {
+			fmt.Printf("\r%s", status)
 		}
 
-		fmt.Print(status)
 		statusLastLength = statusNewLength
 	}
 }

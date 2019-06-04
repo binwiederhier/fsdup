@@ -6,16 +6,25 @@ import (
 	"sort"
 )
 
+type chunkStat struct {
+	size int64
+	kind kind
+}
+
 func Stat(manifestFiles []string) error {
 	totalImageSize := int64(0)
-	totalChunkSize := int64(0)
 	totalFileSize := int64(0)
 	totalGapSize := int64(0)
 	totalUnknownSize := int64(0)
-	totalSparseSize := int64(0)
-	usedSizes := make([]int64, 0)
 
-	chunkMap := make(map[string]int64, 0) // checksum -> size
+	totalSparseSize := int64(0)
+
+	totalChunkSize := int64(0)
+	totalFileChunkSize := int64(0)
+	totalGapChunkSize := int64(0)
+	totalUnknownChunkSize := int64(0)
+
+	chunkMap := make(map[string]*chunkStat, 0) // checksum -> size
 	chunkSizes := make([]int64, 0)
 
 	for _, manifestFile := range manifestFiles {
@@ -51,18 +60,27 @@ func Stat(manifestFiles []string) error {
 			checksumStr := fmt.Sprintf("%x", part.checksum)
 
 			if _, ok := chunkMap[checksumStr]; !ok {
-				chunkMap[checksumStr] = part.to
+				chunkMap[checksumStr] = &chunkStat{
+					size: part.to,
+					kind: part.kind, // This is inaccurate, because only the first appearance of the chunk is counted!
+				}
 			} else {
-				chunkMap[checksumStr] = maxInt64(chunkMap[checksumStr], part.to)
+				chunkMap[checksumStr].size = maxInt64(chunkMap[checksumStr].size, part.to)
 			}
 		}
-
-		usedSizes = append(usedSizes, usedSize)
 	}
 
-	for _, chunkSize := range chunkMap {
-		totalChunkSize += chunkSize
-		chunkSizes = append(chunkSizes, chunkSize)
+	for _, stat := range chunkMap {
+		totalChunkSize += stat.size
+		chunkSizes = append(chunkSizes, stat.size)
+
+		if stat.kind == kindFile {
+			totalFileChunkSize += stat.size
+		} else if stat.kind == kindGap {
+			totalGapChunkSize += stat.size
+		} else {
+			totalUnknownChunkSize += stat.size
+		}
 	}
 
 	sort.Slice(chunkSizes, func(i, j int) bool {
@@ -82,21 +100,24 @@ func Stat(manifestFiles []string) error {
 
 	totalUsedSize := totalImageSize - totalSparseSize
 	dedupRatio := float64(totalUsedSize) / float64(totalChunkSize) // as x:1 ratio
-	spaceReductionRatio := (1 - 1/dedupRatio) * 100                // in %
+	spaceReductionPercentage := (1 - 1/dedupRatio) * 100           // in %
 
 	fmt.Printf("Manifests:                  %d\n", manifestCount)
 	fmt.Printf("Number of unique chunks:    %d\n", chunkCount)
 	fmt.Printf("Total image size:           %s (%d bytes)\n", convertToHumanReadable(totalImageSize), totalImageSize)
-	fmt.Printf("Total used size:            %s (%d bytes)\n", convertToHumanReadable(totalUsedSize), totalUsedSize)
-	fmt.Printf("Total file data size:       %s (%d bytes)\n", convertToHumanReadable(totalFileSize), totalFileSize)
-	fmt.Printf("Total gap data size:        %s (%d bytes)\n", convertToHumanReadable(totalGapSize), totalGapSize)
-	fmt.Printf("Total unkown data size:     %s (%d bytes)\n", convertToHumanReadable(totalUnknownSize), totalUnknownSize)
-	fmt.Printf("Total sparse size:          %s (%d bytes)\n", convertToHumanReadable(totalSparseSize), totalSparseSize)
+	fmt.Printf("- Used:                     %s (%d bytes)\n", convertToHumanReadable(totalUsedSize), totalUsedSize)
+	fmt.Printf("  - Files:                  %s (%d bytes)\n", convertToHumanReadable(totalFileSize), totalFileSize)
+	fmt.Printf("  - Gaps:                   %s (%d bytes)\n", convertToHumanReadable(totalGapSize), totalGapSize)
+	fmt.Printf("  - Unknown:                %s (%d bytes)\n", convertToHumanReadable(totalUnknownSize), totalUnknownSize)
+	fmt.Printf("- Sparse/empty:             %s (%d bytes)\n", convertToHumanReadable(totalSparseSize), totalSparseSize)
 	fmt.Printf("Total chunk size:           %s (%d bytes)\n", convertToHumanReadable(totalChunkSize), totalChunkSize)
+	fmt.Printf("- File chunks:              %s (%d bytes)\n", convertToHumanReadable(totalFileChunkSize), totalFileChunkSize)
+	fmt.Printf("- Gap chunks:               %s (%d bytes)\n", convertToHumanReadable(totalGapChunkSize), totalGapChunkSize)
+	fmt.Printf("- Unkown chunks:            %s (%d bytes)\n", convertToHumanReadable(totalUnknownChunkSize), totalUnknownChunkSize)
 	fmt.Printf("Average chunk size:         %s (%d bytes)\n", convertToHumanReadable(averageChunkSize), averageChunkSize)
 	fmt.Printf("Median chunk size:          %s (%d bytes)\n", convertToHumanReadable(medianChunkSize), medianChunkSize)
 	fmt.Printf("Dedup ratio:                %.1f : 1\n", dedupRatio)
-	fmt.Printf("Space reduction ratio:      %.1f %%\n", spaceReductionRatio)
+	fmt.Printf("Space reduction:            %.1f %%\n", spaceReductionPercentage)
 
 	return nil
 }

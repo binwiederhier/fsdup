@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+// TODO [HIGH] Exclude large temp files (pagefile.sys, datto.ctl, ...)
+// TODO [HIGH] Identify why there are so many gap chunks
 // TODO [LOW] Find zeros in gaps, mark as sparse
 // TODO [LOW] Find zeros in FILE runs, mark as sparse
 // TODO [LOW] rename "size" to "length"
@@ -28,7 +30,7 @@ var (
 func main() {
 	versionFlag := flag.Bool("version", false, "Displays the version of this program")
 	debugFlag := flag.Bool("debug", false, "Enable debug information")
-	quietFlag := flag.Bool("quiet", false, "Enable debug information")
+	quietFlag := flag.Bool("quiet", false, "Do not print status information")
 
 	flag.Parse()
 
