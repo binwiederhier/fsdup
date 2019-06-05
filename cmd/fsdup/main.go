@@ -268,7 +268,11 @@ func createCephChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
 	} else if uri.Path != "" {
 		configFile = uri.Path
 	} else {
-		return nil, errors.New("invalid syntax for ceph store type, should be ceph:FILE?pool=POOL")
+		configFile = "/etc/ceph/ceph.conf"
+	}
+
+	if _, err := os.Stat(configFile); err != nil {
+		return nil, err
 	}
 
 	pool = uri.Query().Get("pool")
