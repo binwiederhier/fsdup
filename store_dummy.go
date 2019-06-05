@@ -10,7 +10,7 @@ func NewDummyChunkStore() *dummyChunkStore {
 	return &dummyChunkStore{}
 }
 
-func (idx *dummyChunkStore) Write(chunk *chunk) error {
+func (idx *dummyChunkStore) Write(checksum []byte, buffer []byte) error {
 	return nil
 }
 

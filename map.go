@@ -76,67 +76,6 @@ func (d *manifestImage) WriteAt(p []byte, off uint) error {
 	return nil
 }
 
-func (d *manifestImage) syncSlice(offset int64, part *chunkPart) error {
-	if _, ok := d.written[offset]; ok {
-		return nil
-	}
-
-	if part.checksum == nil {
-		d.written[offset] = true
-		return nil
-	}
-
-	length := part.to - part.from
-	debugf("Syncing diskoff %d - %d (len %d) -> checksum %x, %d to %d\n",
-		offset, offset + length, length, part.checksum, part.from, part.to)
-
-	buffer := make([]byte, length) // FIXME: Make this a buffer pool
-	read, err := d.cache.ReadAt(part.checksum, buffer, part.from)
-	if err != nil {
-		debugf("Chunk %x not in cache. Retrieving full chunk ...\n", part.checksum)
-
-		// Read entire chunk, store to cache
-		chunk := d.chunks[fmt.Sprintf("%x", part.checksum)]
-		chunk.data = make([]byte, chunk.size)
-
-		// FIXME: This will fill up the local cache will all chunks and never delete it
-		read, err = d.store.ReadAt(part.checksum, chunk.data, 0)
-		if err := d.cache.Write(chunk); err != nil {
-			return err
-		} else if int64(read) != chunk.size {
-			return errors.New(fmt.Sprintf("cannot read entire chunk, read only %d bytes", read))
-		}
-
-		// Copy to target buffer
-		copy(buffer, chunk.data[part.from:part.to])
-	} else if int64(read) != length {
-		return errors.New(fmt.Sprintf("cannot read entire slice, read only %d bytes", read))
-	}
-
-	_, err = d.target.WriteAt(buffer, offset)
-	if err != nil {
-		return err
-	} /*else if written != read {
-		return errors.New("cannot write all data to target file")
-	}*/ // FIXME!
-
-	d.written[offset] = true
-
-	return nil
-}
-
-func (d *manifestImage) Disconnect() {
-	// No thanks
-}
-
-func (d *manifestImage) Flush() error {
-	return nil
-}
-
-func (d *manifestImage) Trim(off, length uint) error {
-	return nil
-}
-
 func (d *manifestImage) syncSlices(from int64, to int64) error {
 	// Find first chunk
 	// FIXME Linear search is inefficient; use binary search instead, or something better.
@@ -175,6 +114,67 @@ func (d *manifestImage) syncSlices(from int64, to int64) error {
 		offset += part.to - part.from
 	}
 
+	return nil
+}
+
+func (d *manifestImage) syncSlice(offset int64, part *chunkPart) error {
+	if _, ok := d.written[offset]; ok {
+		return nil
+	}
+
+	if part.checksum == nil {
+		d.written[offset] = true
+		return nil
+	}
+
+	length := part.to - part.from
+	debugf("Syncing diskoff %d - %d (len %d) -> checksum %x, %d to %d\n",
+		offset, offset + length, length, part.checksum, part.from, part.to)
+
+	buffer := make([]byte, chunkSizeMaxBytes) // FIXME: Make this a buffer pool
+	read, err := d.cache.ReadAt(part.checksum, buffer[:length], part.from)
+	if err != nil {
+		debugf("Chunk %x not in cache. Retrieving full chunk ...\n", part.checksum)
+
+		// Read entire chunk, store to cache
+		chunk := d.chunks[fmt.Sprintf("%x", part.checksum)]
+
+		// FIXME: This will fill up the local cache will all chunks and never delete it
+		read, err = d.store.ReadAt(part.checksum, buffer[:chunk.size], 0)
+		if err != nil {
+			return err
+		} else if int64(read) != chunk.size {
+			return errors.New(fmt.Sprintf("cannot read entire chunk, read only %d bytes", read))
+		}
+
+		if err := d.cache.Write(part.checksum, buffer[:chunk.size]); err != nil {
+			return err
+		}
+
+		buffer = buffer[part.from:part.to]
+	} else if int64(read) != length {
+		return errors.New(fmt.Sprintf("cannot read entire slice, read only %d bytes", read))
+	}
+
+	_, err = d.target.WriteAt(buffer[:length], offset)
+	if err != nil {
+		return err
+	}
+
+	d.written[offset] = true
+
+	return nil
+}
+
+func (d *manifestImage) Disconnect() {
+	// No thanks
+}
+
+func (d *manifestImage) Flush() error {
+	return nil
+}
+
+func (d *manifestImage) Trim(off, length uint) error {
 	return nil
 }
 

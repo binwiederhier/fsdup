@@ -19,8 +19,8 @@ func NewFileChunkStore(root string) *fileChunkStore {
 	}
 }
 
-func (idx *fileChunkStore) Write(chunk *chunk) error {
-	checksumStr := chunk.ChecksumString()
+func (idx *fileChunkStore) Write(checksum []byte, buffer []byte) error {
+	checksumStr := fmt.Sprintf("%x", checksum)
 
 	if _, ok := idx.chunkMap[checksumStr]; !ok {
 		dir := fmt.Sprintf("%s/%s/%s", idx.root, checksumStr[0:3], checksumStr[3:6])
@@ -31,13 +31,13 @@ func (idx *fileChunkStore) Write(chunk *chunk) error {
 				return err
 			}
 
-			err = ioutil.WriteFile(file, chunk.Data(), 0666)
+			err = ioutil.WriteFile(file, buffer, 0666)
 			if err != nil {
 				return err
 			}
 		}
 
-		idx.chunkMap[chunk.ChecksumString()] = true
+		idx.chunkMap[checksumStr] = true
 	}
 
 	return nil

@@ -21,21 +21,21 @@ func NewCephStore(configFile string, pool string) *cephChunkStore {
 	}
 }
 
-func (idx *cephChunkStore) Write(chunk *chunk) error {
+func (idx *cephChunkStore) Write(checksum []byte, buffer []byte) error {
 	if err := idx.openPool(); err != nil {
 		return err
 	}
 
-	checksumStr := chunk.ChecksumString()
+	checksumStr := fmt.Sprintf("%x", checksum)
 
 	if _, ok := idx.chunkMap[checksumStr]; !ok {
 		if _, err := idx.ctx.Stat(checksumStr); err != nil {
-			if err := idx.ctx.Write(checksumStr, chunk.Data(), 0); err != nil {
+			if err := idx.ctx.Write(checksumStr, buffer, 0); err != nil {
 				return err
 			}
 		}
 
-		idx.chunkMap[chunk.ChecksumString()] = true
+		idx.chunkMap[checksumStr] = true
 	}
 
 	return nil

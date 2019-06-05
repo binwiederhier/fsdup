@@ -475,7 +475,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 					parts = make(map[int64]*chunkPart, 0) // clear!
 
 					// Write chunk
-					if err := d.store.Write(d.chunk); err != nil {
+					if err := d.store.Write(d.chunk.Checksum(), d.chunk.Data()); err != nil {
 						return err
 					}
 
@@ -516,7 +516,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 		}
 
 		debugf("- End of file. Emitting last chunk %x, size = %d\n", d.chunk.Checksum(), d.chunk.Size())
-		if err := d.store.Write(d.chunk); err != nil {
+		if err := d.store.Write(d.chunk.Checksum(), d.chunk.Data()); err != nil {
 			return err
 		}
 	}

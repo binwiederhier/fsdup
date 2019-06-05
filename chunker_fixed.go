@@ -69,7 +69,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				chunk.Reset()
 				chunk.Write(buffer[:bytesRead])
 
-				if err := d.store.Write(chunk); err != nil {
+				if err := d.store.Write(chunk.Checksum(), chunk.Data()); err != nil {
 					return nil, err
 				}
 
@@ -106,7 +106,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 					chunk.Reset()
 					chunk.Write(buffer[:bytesRead])
 
-					if err := d.store.Write(chunk); err != nil {
+					if err := d.store.Write(chunk.Checksum(), chunk.Data()); err != nil {
 						return nil, err
 					}
 
@@ -153,7 +153,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 			chunk.Reset()
 			chunk.Write(buffer[:bytesRead])
 
-			if err := d.store.Write(chunk); err != nil {
+			if err := d.store.Write(chunk.Checksum(), chunk.Data()); err != nil {
 				return nil, err
 			}
 

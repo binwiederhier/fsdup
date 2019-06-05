@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	DefaultDedupFileSizeMinBytes  = 2 * 1024 * 1024
+	DefaultDedupFileSizeMinBytes  = 128 * 1024
 )
 
 type Chunker interface {
