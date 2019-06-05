@@ -144,7 +144,6 @@ func mapCommand(args []string) {
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
 	targetFlag := flags.String("target", "", "Target device or file used for local caching and live migration")
-	readOnlyFlag := flags.Bool("readonly", false, "If set, the mapped drive will be read only")
 
 	flags.Parse(args)
 
@@ -164,13 +163,8 @@ func mapCommand(args []string) {
 	}
 
 	targetFile := *targetFlag
-	readOnly := *readOnlyFlag
 
-	if !readOnly && targetFile == "" {
-		exit(2, "Must specify either -readonly or -target")
-	}
-
-	if err := fsdup.Map(manifestFile, store, targetFile, readOnly); err != nil {
+	if err := fsdup.Map(manifestFile, store, targetFile); err != nil {
 		exit(2, "Cannot map drive file: " + string(err.Error()))
 	}
 }
