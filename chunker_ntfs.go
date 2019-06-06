@@ -416,7 +416,7 @@ func (d *ntfsChunker) readRuns(entry []byte, offset int64) []run {
 func (d *ntfsChunker) dedupFile(entry *entry) error {
 	remainingToEndOfFile := entry.dataSize
 
-	parts := make(map[int64]*chunkPart, 0)
+	slices := make(map[int64]*chunkSlice, 0)
 	d.chunk.Reset()
 
 	for _, run := range entry.runs {
@@ -449,7 +449,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 				debugf("- Bytes read = %d, current chunk size = %d, chunk max = %d\n",
 					runBytesRead, d.chunk.Size(), chunkSizeMaxBytes)
 
-				parts[runOffset] = &chunkPart{
+				slices[runOffset] = &chunkSlice{
 					checksum: nil, // fill this when chunk is finalized!
 					from: d.chunk.Size(),
 					to: d.chunk.Size() + int64(runBytesRead),
@@ -464,15 +464,15 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 				if d.chunk.Full() {
 					debugf("- Chunk full. Emitting chunk %x, size = %d\n", d.chunk.Checksum(), d.chunk.Size())
 
-					// Add parts to disk map
-					for partOffset, part := range parts {
-						part.checksum = d.chunk.Checksum()
+					// Add slices to disk map
+					for sliceOffset, slice := range slices {
+						slice.checksum = d.chunk.Checksum()
 						debugf("- Adding disk section %d - %d, mapping to chunk %x, offset %d - %d\n",
-							partOffset, partOffset + part.to - part.from, part.checksum, part.from, part.to)
-						d.out.Add(partOffset, part)
+							sliceOffset, sliceOffset+ slice.to - slice.from, slice.checksum, slice.from, slice.to)
+						d.out.Add(sliceOffset, slice)
 					}
 
-					parts = make(map[int64]*chunkPart, 0) // clear!
+					slices = make(map[int64]*chunkSlice, 0) // clear!
 
 					// Write chunk
 					if err := d.store.Write(d.chunk.Checksum(), d.chunk.Data()); err != nil {
@@ -494,7 +494,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 					debugf("- File end is not cluster aligned, emitting sparse section %d - %d\n",
 						runOffset, runOffset + remainingToEndOfCluster)
 
-					d.out.Add(runOffset, &chunkPart{
+					d.out.Add(runOffset, &chunkSlice{
 						checksum: nil,
 						from: 0,
 						to: remainingToEndOfCluster,
@@ -507,12 +507,12 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 
 	// Finish last chunk
 	if d.chunk.Size() > 0 {
-		// Add parts to disk map
-		for partOffset, part := range parts {
-			part.checksum = d.chunk.Checksum()
+		// Add slices to disk map
+		for sliceOffset, slice := range slices {
+			slice.checksum = d.chunk.Checksum()
 			debugf("- Adding disk section %d - %d, mapping to chunk %x, offset %d - %d\n",
-				partOffset, partOffset + part.to - part.from, part.checksum, part.from, part.to)
-			d.out.Add(partOffset, part)
+				sliceOffset, sliceOffset+ slice.to - slice.from, slice.checksum, slice.from, slice.to)
+			d.out.Add(sliceOffset, slice)
 		}
 
 		debugf("- End of file. Emitting last chunk %x, size = %d\n", d.chunk.Checksum(), d.chunk.Size())
@@ -603,7 +603,7 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 							debugf("- Detected large sparse section %d - %d (%d bytes)\n",
 								sparseSectionStartOffset, sparseSectionEndOffset, sparseSectionLength)
 
-							d.out.Add(sparseSectionStartOffset, &chunkPart{
+							d.out.Add(sparseSectionStartOffset, &chunkSlice{
 								checksum: nil,
 								from: sparseSectionStartOffset,
 								to: sparseSectionEndOffset,

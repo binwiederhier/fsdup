@@ -136,16 +136,16 @@ func (d *manifestImage) syncSlices(from int64, to int64) error {
 	toIndex := int64(-1)
 
 	for i := int64(0); i < int64(len(d.offsets)); i++ {
-		part := d.manifest.Get(d.offsets[i])
-		partStart := d.offsets[i]
-		partEnd := partStart + part.to - part.from
+		slice := d.manifest.Get(d.offsets[i])
+		sliceStart := d.offsets[i]
+		sliceEnd := sliceStart + slice.to - slice.from
 
-		if partStart <= from && from < partEnd {
+		if sliceStart <= from && from < sliceEnd {
 			fromIndex = i
-			fromOffset = partStart
+			fromOffset = sliceStart
 		}
 
-		if partStart <= to && to <= partEnd { // FIXME: to <= ??
+		if sliceStart <= to && to <= sliceEnd { // FIXME: to <= ??
 			toIndex = i
 			break
 		}
@@ -158,52 +158,52 @@ func (d *manifestImage) syncSlices(from int64, to int64) error {
 
 	offset := fromOffset
 	for i := fromIndex; i <= toIndex; i++ {
-		part := d.manifest.Get(d.offsets[i])
-		if err := d.syncSlice(offset, part); err != nil {
+		slice := d.manifest.Get(d.offsets[i])
+		if err := d.syncSlice(offset, slice); err != nil {
 			return err
 		}
 
-		offset += part.to - part.from
+		offset += slice.to - slice.from
 	}
 
 	return nil
 }
 
-func (d *manifestImage) syncSlice(offset int64, part *chunkPart) error {
+func (d *manifestImage) syncSlice(offset int64, slice *chunkSlice) error {
 	if _, ok := d.written[offset]; ok {
 		return nil
 	}
 
-	if part.checksum == nil {
+	if slice.checksum == nil {
 		d.written[offset] = true
 		return nil
 	}
 
-	length := part.to - part.from
+	length := slice.to - slice.from
 	debugf("Syncing diskoff %d - %d (len %d) -> checksum %x, %d to %d\n",
-		offset, offset + length, length, part.checksum, part.from, part.to)
+		offset, offset + length, length, slice.checksum, slice.from, slice.to)
 
 	buffer := make([]byte, chunkSizeMaxBytes) // FIXME: Make this a buffer pool
-	read, err := d.cache.ReadAt(part.checksum, buffer[:length], part.from)
+	read, err := d.cache.ReadAt(slice.checksum, buffer[:length], slice.from)
 	if err != nil {
-		debugf("Chunk %x not in cache. Retrieving full chunk ...\n", part.checksum)
+		debugf("Chunk %x not in cache. Retrieving full chunk ...\n", slice.checksum)
 
 		// Read entire chunk, store to cache
-		chunk := d.chunks[fmt.Sprintf("%x", part.checksum)]
+		chunk := d.chunks[fmt.Sprintf("%x", slice.checksum)]
 
 		// FIXME: This will fill up the local cache will all chunks and never delete it
-		read, err = d.store.ReadAt(part.checksum, buffer[:chunk.size], 0)
+		read, err = d.store.ReadAt(slice.checksum, buffer[:chunk.size], 0)
 		if err != nil {
 			return err
 		} else if int64(read) != chunk.size {
 			return errors.New(fmt.Sprintf("cannot read entire chunk, read only %d bytes", read))
 		}
 
-		if err := d.cache.Write(part.checksum, buffer[:chunk.size]); err != nil {
+		if err := d.cache.Write(slice.checksum, buffer[:chunk.size]); err != nil {
 			return err
 		}
 
-		buffer = buffer[part.from:part.to]
+		buffer = buffer[slice.from:slice.to]
 	} else if int64(read) != length {
 		return errors.New(fmt.Sprintf("cannot read entire slice, read only %d bytes", read))
 	}

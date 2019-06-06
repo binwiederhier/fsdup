@@ -7,10 +7,11 @@ import (
 )
 
 type chunkStat struct {
-	checksum []byte
-	size     int64
-	slices   int64
-	kind     kind
+	checksum   []byte
+	size       int64
+	sliceCount int64
+	sliceSizes int64
+	kind       kind
 }
 
 func Stat(manifestFiles []string, verbose bool) error {
@@ -64,14 +65,16 @@ func Stat(manifestFiles []string, verbose bool) error {
 
 			if _, ok := chunkMap[checksumStr]; !ok {
 				chunkMap[checksumStr] = &chunkStat{
-					checksum: slice.checksum,
-					size:     slice.to,
-					slices:   1,
-					kind:     slice.kind, // This is inaccurate, because only the first appearance of the chunk is counted!
+					checksum:   slice.checksum,
+					size:       slice.to,
+					sliceCount: 1,
+					sliceSizes: sliceSize,
+					kind:       slice.kind, // This is inaccurate, because only the first appearance of the chunk is counted!
 				}
 			} else {
 				chunkMap[checksumStr].size = maxInt64(chunkMap[checksumStr].size, slice.to)
-				chunkMap[checksumStr].slices++
+				chunkMap[checksumStr].sliceCount++
+				chunkMap[checksumStr].sliceSizes += sliceSize
 			}
 		}
 	}
@@ -105,7 +108,7 @@ func Stat(manifestFiles []string, verbose bool) error {
 
 	// Find chunk histogram
 	sort.Slice(chunkStats, func(i, j int) bool {
-		return chunkStats[i].slices > chunkStats[j].slices
+		return chunkStats[i].sliceSizes > chunkStats[j].sliceSizes
 	})
 
 	manifestCount := int64(len(manifestFiles))
@@ -136,7 +139,7 @@ func Stat(manifestFiles []string, verbose bool) error {
 	if verbose {
 		fmt.Printf("Slice histogram (top 10):\n")
 		for i, stat := range chunkStats {
-			fmt.Printf("- Chunk %x appeared in %d slice(s)\n", stat.checksum, stat.slices)
+			fmt.Printf("- Chunk %x: %s in %d slice(s)\n", stat.checksum, convertToHumanReadable(stat.sliceSizes), stat.sliceCount)
 			if i == 10 {
 				break
 			}

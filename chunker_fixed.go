@@ -76,7 +76,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				debugf("offset %d - %d, NEW chunk %x, size %d\n",
 					currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
 
-				out.Add(currentOffset, &chunkPart{
+				out.Add(currentOffset, &chunkSlice{
 					checksum: chunk.Checksum(),
 					from: 0,
 					to: chunk.Size(),
@@ -110,7 +110,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 						return nil, err
 					}
 
-					out.Add(currentOffset, &chunkPart{
+					out.Add(currentOffset, &chunkSlice{
 						checksum: chunk.Checksum(),
 						from: 0,
 						to: chunk.Size(),
@@ -160,7 +160,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 			debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
 				currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
 
-			out.Add(currentOffset, &chunkPart{
+			out.Add(currentOffset, &chunkSlice{
 				checksum: chunk.Checksum(),
 				from: 0,
 				to: chunk.Size(),

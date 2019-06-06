@@ -17,11 +17,11 @@ const (
 )
 
 type manifest struct {
-	diskMap map[int64]*chunkPart
+	diskMap map[int64]*chunkSlice
 	size    int64
 }
 
-type chunkPart struct {
+type chunkSlice struct {
 	checksum []byte
 	from int64
 	to int64
@@ -31,7 +31,7 @@ type chunkPart struct {
 func NewManifest() *manifest {
 	return &manifest{
 		size: 0,
-		diskMap: make(map[int64]*chunkPart, 0),
+		diskMap: make(map[int64]*chunkSlice, 0),
 	}
 }
 
@@ -50,7 +50,7 @@ func NewManifestFromFile(file string) (*manifest, error) {
 	offset := int64(0)
 
 	for _, slice := range pbmanifest.Slices {
-		manifest.Add(offset, &chunkPart{
+		manifest.Add(offset, &chunkSlice{
 			checksum: slice.Checksum,
 			from: slice.Offset,
 			to: slice.Offset + slice.Length,
@@ -99,11 +99,11 @@ func (m *manifest) Chunks() map[string]*chunk {
 	return chunkMap
 }
 
-func (m *manifest) Add(offset int64, part *chunkPart) {
+func (m *manifest) Add(offset int64, part *chunkSlice) {
 	m.diskMap[offset] = part
 }
 
-func (m *manifest) Get(offset int64) *chunkPart {
+func (m *manifest) Get(offset int64) *chunkSlice {
 	return m.diskMap[offset]
 }
 
@@ -125,8 +125,8 @@ func (m *manifest) Merge(other *manifest) {
 }
 
 func (m *manifest) MergeAtOffset(offset int64, other *manifest) {
-	for partOffset, part := range other.diskMap {
-		m.diskMap[offset+partOffset] = part
+	for sliceOffset, part := range other.diskMap {
+		m.diskMap[offset+sliceOffset] = part
 	}
 }
 
@@ -138,12 +138,12 @@ func (m *manifest) WriteToFile(file string) error {
 	}
 
 	for i, offset := range m.Offsets() {
-		part := m.diskMap[offset]
+		slice := m.diskMap[offset]
 		pbmanifest.Slices[i] = &pb.Slice{
-			Checksum: part.checksum,
-			Offset: part.from,
-			Length: part.to - part.from,
-			Kind: int32(part.kind),
+			Checksum: slice.checksum,
+			Offset:   slice.from,
+			Length:   slice.to - slice.from,
+			Kind:     int32(slice.kind),
 		}
 	}
 
@@ -162,21 +162,21 @@ func (m *manifest) WriteToFile(file string) error {
 
 func (m *manifest) Print() {
 	for i, offset := range m.Offsets() {
-		part := m.diskMap[offset]
+		slice := m.diskMap[offset]
 
-		if part.checksum == nil {
+		if slice.checksum == nil {
 			fmt.Printf("idx %010d diskoff %013d - %013d len %-13d sparse     -\n",
-				i, offset, offset + part.to - part.from, part.to - part.from)
+				i, offset, offset + slice.to - slice.from, slice.to - slice.from)
 		} else {
 			kind := "unknown"
-			if part.kind == kindGap {
+			if slice.kind == kindGap {
 				kind = "gap"
-			} else if part.kind == kindFile {
+			} else if slice.kind == kindFile {
 				kind = "file"
 			}
 
 			fmt.Printf("idx %010d diskoff %013d - %013d len %-13d %-10s chunk %64x chunkoff %10d - %10d\n",
-				i, offset, offset + part.to - part.from, part.to - part.from, kind, part.checksum, part.from, part.to)
+				i, offset, offset + slice.to - slice.from, slice.to - slice.from, kind, slice.checksum, slice.from, slice.to)
 		}
 	}
 }
