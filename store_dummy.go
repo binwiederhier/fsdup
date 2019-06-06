@@ -17,3 +17,7 @@ func (idx *dummyChunkStore) Write(checksum []byte, buffer []byte) error {
 func (idx *dummyChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) (int, error) {
 	return 0, errors.New("cannot read from a dummy store, dummy!")
 }
+
+func (idx *dummyChunkStore) Remove(checksum []byte) error {
+	return nil
+}

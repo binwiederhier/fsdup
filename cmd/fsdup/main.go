@@ -142,6 +142,7 @@ func mapCommand(args []string) {
 	flags := flag.NewFlagSet("map", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
+	cacheFlag := flags.String("cache", "cache", "Location of the chunk cache")
 	targetFlag := flags.String("target", "", "Target device or file used for local caching and live migration")
 
 	flags.Parse(args)
@@ -161,9 +162,10 @@ func mapCommand(args []string) {
 		exit(2, "Invalid syntax: " + string(err.Error()))
 	}
 
+	cache := fsdup.NewFileChunkStore(*cacheFlag)
 	targetFile := *targetFlag
 
-	if err := fsdup.Map(manifestFile, store, targetFile); err != nil {
+	if err := fsdup.Map(manifestFile, store, cache, targetFile); err != nil {
 		exit(2, "Cannot map drive file: " + string(err.Error()))
 	}
 }

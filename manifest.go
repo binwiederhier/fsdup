@@ -66,8 +66,8 @@ func NewManifestFromFile(file string) (*manifest, error) {
 // Breakpoints returns a sorted list of breakpoints, useful for sequential disk traversal
 func (m *manifest) Offsets() []int64 {
 	offsets := make([]int64, 0, len(m.diskMap))
-	for breakpoint, _ := range m.diskMap {
-		offsets = append(offsets, breakpoint)
+	for offset, _ := range m.diskMap {
+		offsets = append(offsets, offset)
 	}
 
 	sort.Slice(offsets, func(i, j int) bool {

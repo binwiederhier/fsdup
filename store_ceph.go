@@ -21,6 +21,22 @@ func NewCephStore(configFile string, pool string) *cephChunkStore {
 	}
 }
 
+func (idx *cephChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) (int, error) {
+	if err := idx.openPool(); err != nil {
+		return 0, err
+	}
+
+	checksumStr := fmt.Sprintf("%x", checksum)
+	read, err := idx.ctx.Read(checksumStr, buffer, uint64(offset))
+	if err != nil {
+		return 0, err
+	} else if read != len(buffer) {
+		return 0, errors.New("cannot read full section")
+	}
+
+	return read, nil
+}
+
 func (idx *cephChunkStore) Write(checksum []byte, buffer []byte) error {
 	if err := idx.openPool(); err != nil {
 		return err
@@ -41,20 +57,18 @@ func (idx *cephChunkStore) Write(checksum []byte, buffer []byte) error {
 	return nil
 }
 
-func (idx *cephChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) (int, error) {
+func (idx *cephChunkStore) Remove(checksum []byte) error {
 	if err := idx.openPool(); err != nil {
-		return 0, err
+		return err
 	}
 
 	checksumStr := fmt.Sprintf("%x", checksum)
-	read, err := idx.ctx.Read(checksumStr, buffer, uint64(offset))
+	err := idx.ctx.Delete(checksumStr)
 	if err != nil {
-		return 0, err
-	} else if read != len(buffer) {
-		return 0, errors.New("cannot read full section")
+		return err
 	}
 
-	return read, nil
+	return nil
 }
 
 func (idx *cephChunkStore) openPool() error {

@@ -66,3 +66,19 @@ func (idx *fileChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) 
 
 	return read, nil
 }
+
+func (idx *fileChunkStore) Remove(checksum []byte) error {
+	checksumStr := fmt.Sprintf("%x", checksum)
+	dir1 := fmt.Sprintf("%s/%s", idx.root, checksumStr[0:3])
+	dir2 := fmt.Sprintf("%s/%s/%s", idx.root, checksumStr[0:3], checksumStr[3:6])
+	file := fmt.Sprintf("%s/%s", dir2, checksumStr)
+
+	if err := os.Remove(file); err != nil {
+		return err
+	}
+
+	os.Remove(dir2)
+	os.Remove(dir1)
+
+	return nil
+}

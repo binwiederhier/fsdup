@@ -2,6 +2,7 @@ package fsdup
 
 import (
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -18,7 +19,7 @@ func debugf(format string, args ...interface{}) {
 	}
 
 	if Debug {
-		fmt.Printf(format, args...)
+		log.Printf(format, args...)
 	}
 }
 

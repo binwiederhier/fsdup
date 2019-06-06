@@ -23,10 +23,10 @@ type manifestImage struct {
 	offsets    []int64
 	chunks     map[string]*chunk
 	written    map[int64]bool
-	//chunkCount map[string]int64
+	sliceCount map[string]int64
 }
 
-func Map(manifestFile string, store ChunkStore, targetFile string) error {
+func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile string) error {
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err
@@ -51,7 +51,7 @@ func Map(manifestFile string, store ChunkStore, targetFile string) error {
 
 	debugf("Creating device %s ...\n", deviceName)
 
-	image := NewManifestImage(manifest, store, target)
+	image := NewManifestImage(manifest, store, cache, target)
 	device, err := buse.CreateDevice(deviceName, uint(manifest.Size()), image)
 	if err != nil {
 		return err
@@ -61,7 +61,7 @@ func Map(manifestFile string, store ChunkStore, targetFile string) error {
 	signal.Notify(sig, os.Interrupt)
 	go func() {
 		if err := device.Connect(); err != nil {
-			log.Printf("Buse device stopped with error: %s", err)
+			debugf("Buse device stopped with error: %s", err)
 		} else {
 			log.Println("Buse device stopped gracefully.")
 		}
@@ -76,16 +76,31 @@ func Map(manifestFile string, store ChunkStore, targetFile string) error {
 	return nil
 }
 
-func NewManifestImage(manifest *manifest, store ChunkStore, target *os.File) *manifestImage {
+func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, target *os.File) *manifestImage {
+	sliceCount := make(map[string]int64, 0)
+
+	for _, sliceOffset := range manifest.Offsets() {
+		slice := manifest.Get(sliceOffset)
+		if slice.checksum != nil {
+			checksumStr := fmt.Sprintf("%x", slice.checksum)
+
+			if _, ok := sliceCount[checksumStr]; ok {
+				sliceCount[checksumStr]++
+			} else {
+				sliceCount[checksumStr] = 1
+			}
+		}
+	}
+
 	return &manifestImage{
-		manifest: manifest,
-		store:    store,
-		target:   target,
-		cache:    NewFileChunkStore("cache"),
-		offsets:  manifest.Offsets(), // cache !
-		chunks:   manifest.Chunks(),  // cache !
-		written:  make(map[int64]bool, 0),
-		// chunkCount: make(map[string]int64, 0),
+		manifest:   manifest,
+		store:      store,
+		target:     target,
+		cache:      cache,
+		offsets:    manifest.Offsets(), // cache !
+		chunks:     manifest.Chunks(),  // cache !
+		written:    make(map[int64]bool, 0),
+		sliceCount: sliceCount,
 	}
 }
 
@@ -116,7 +131,7 @@ func (d *manifestImage) WriteAt(p []byte, off uint) error {
 		return err
 	}
 
-	log.Printf("WRITE offset:%d len:%d\n", off, len(p))
+	debugf("WRITE offset:%d len:%d\n", off, len(p))
 
 	written, err := d.target.WriteAt(p, int64(off))
 	if err != nil {
@@ -183,13 +198,14 @@ func (d *manifestImage) syncSlice(offset int64, slice *chunkSlice) error {
 	debugf("Syncing diskoff %d - %d (len %d) -> checksum %x, %d to %d\n",
 		offset, offset + length, length, slice.checksum, slice.from, slice.to)
 
+	checksumStr := fmt.Sprintf("%x", slice.checksum)
 	buffer := make([]byte, chunkSizeMaxBytes) // FIXME: Make this a buffer pool
 	read, err := d.cache.ReadAt(slice.checksum, buffer[:length], slice.from)
 	if err != nil {
 		debugf("Chunk %x not in cache. Retrieving full chunk ...\n", slice.checksum)
 
 		// Read entire chunk, store to cache
-		chunk := d.chunks[fmt.Sprintf("%x", slice.checksum)]
+		chunk := d.chunks[checksumStr]
 
 		// FIXME: This will fill up the local cache will all chunks and never delete it
 		read, err = d.store.ReadAt(slice.checksum, buffer[:chunk.size], 0)
@@ -213,7 +229,16 @@ func (d *manifestImage) syncSlice(offset int64, slice *chunkSlice) error {
 		return err
 	}
 
+	// Accounting
 	d.written[offset] = true
+	d.sliceCount[checksumStr]--
+
+	// Remove from cache if it will never be requested again
+	if d.sliceCount[checksumStr] == 0 {
+		if err := d.cache.Remove(slice.checksum); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
