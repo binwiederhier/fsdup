@@ -74,7 +74,7 @@ func usage() {
 	fmt.Println("")
 	fmt.Println("Commands:")
 	fmt.Println("  index [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
-	fmt.Println("  map [-store STORE] [-target FILE] MANIFEST")
+	fmt.Println("  map [-store STORE] [-cache CACHE] MANIFEST OUTFILE")
 	fmt.Println("  export [-store STORE] MANIFEST OUTFILE")
 	fmt.Println("  print MANIFEST")
 	fmt.Println("  stat MANIFEST...")
@@ -143,11 +143,10 @@ func mapCommand(args []string) {
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
 	cacheFlag := flags.String("cache", "cache", "Location of the chunk cache")
-	targetFlag := flags.String("target", "", "Target device or file used for local caching and live migration")
 
 	flags.Parse(args)
 
-	if flags.NArg() < 1 {
+	if flags.NArg() < 2 {
 		usage()
 	}
 
@@ -156,6 +155,7 @@ func mapCommand(args []string) {
 	}
 
 	manifestFile := flags.Arg(0)
+	targetFile := flags.Arg(1)
 
 	store, err := createChunkStore(*storeFlag)
 	if err != nil {
@@ -163,7 +163,6 @@ func mapCommand(args []string) {
 	}
 
 	cache := fsdup.NewFileChunkStore(*cacheFlag)
-	targetFile := *targetFlag
 
 	if err := fsdup.Map(manifestFile, store, cache, targetFile); err != nil {
 		exit(2, "Cannot map drive file: " + string(err.Error()))
