@@ -64,17 +64,17 @@ func NewManifestFromFile(file string) (*manifest, error) {
 }
 
 // Breakpoints returns a sorted list of breakpoints, useful for sequential disk traversal
-func (m *manifest) Breakpoints() []int64 {
-	breakpoints := make([]int64, 0, len(m.diskMap))
+func (m *manifest) Offsets() []int64 {
+	offsets := make([]int64, 0, len(m.diskMap))
 	for breakpoint, _ := range m.diskMap {
-		breakpoints = append(breakpoints, breakpoint)
+		offsets = append(offsets, breakpoint)
 	}
 
-	sort.Slice(breakpoints, func(i, j int) bool {
-		return breakpoints[i] < breakpoints[j]
+	sort.Slice(offsets, func(i, j int) bool {
+		return offsets[i] < offsets[j]
 	})
 
-	return breakpoints
+	return offsets
 }
 
 // Chunks returns a map of chunks in this manifest. It does not contain the chunk data.
@@ -137,7 +137,7 @@ func (m *manifest) WriteToFile(file string) error {
 		Slices: make([]*pb.Slice, len(m.diskMap)),
 	}
 
-	for i, offset := range m.Breakpoints() {
+	for i, offset := range m.Offsets() {
 		part := m.diskMap[offset]
 		pbmanifest.Slices[i] = &pb.Slice{
 			Checksum: part.checksum,
@@ -161,7 +161,7 @@ func (m *manifest) WriteToFile(file string) error {
 }
 
 func (m *manifest) Print() {
-	for i, offset := range m.Breakpoints() {
+	for i, offset := range m.Offsets() {
 		part := m.diskMap[offset]
 
 		if part.checksum == nil {

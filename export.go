@@ -24,7 +24,7 @@ func Export(manifestFile string, store ChunkStore, outputFile string) error {
 	buffer := make([]byte, chunkSizeMaxBytes)
 	offset := int64(0)
 
-	for _, breakpoint := range manifest.Breakpoints() {
+	for _, breakpoint := range manifest.Offsets() {
 		part := manifest.Get(breakpoint)
 		sparse := part.checksum == nil
 		length := part.to - part.from

@@ -36,7 +36,7 @@ func Stat(manifestFiles []string) error {
 		usedSize := int64(0)
 		totalImageSize += manifest.Size()
 
-		for _, breakpoint := range manifest.Breakpoints() {
+		for _, breakpoint := range manifest.Offsets() {
 			part := manifest.Get(breakpoint)
 
 			// Ignore sparse sections

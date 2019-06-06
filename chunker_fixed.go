@@ -31,7 +31,7 @@ func NewFixedChunkerWithSkip(reader io.ReaderAt, store ChunkStore, offset int64,
 func (d *fixedChunker) Dedup() (*manifest, error) {
 	out := NewManifest()
 
-	breakpoints := d.skip.Breakpoints()
+	sliceOffsets := d.skip.Offsets()
 
 	currentOffset := int64(0)
 	breakpointIndex := 0
@@ -45,13 +45,13 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 	chunkCount := int64(0)
 
 	for currentOffset < d.sizeInBytes {
-		hasNextBreakpoint := breakpointIndex < len(breakpoints)
+		hasNextBreakpoint := breakpointIndex < len(sliceOffsets)
 
 		if hasNextBreakpoint {
 			// At this point, we figure out if the space from the current offset to the
 			// next breakpoint will fit in a full chunk.
 
-			breakpoint = breakpoints[breakpointIndex]
+			breakpoint = sliceOffsets[breakpointIndex]
 			bytesToBreakpoint := breakpoint - currentOffset
 
 			if bytesToBreakpoint > chunkSizeMaxBytes {

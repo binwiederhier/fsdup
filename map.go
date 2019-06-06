@@ -16,24 +16,76 @@ import (
 //          | y
 
 type manifestImage struct {
-	manifest    *manifest
-	store       ChunkStore
-	target      *os.File
-	cache       ChunkStore
-	breakpoints []int64
-	chunks      map[string]*chunk
-	written      map[int64]bool
+	manifest   *manifest
+	store      ChunkStore
+	target     *os.File
+	cache      ChunkStore
+	offsets    []int64
+	chunks     map[string]*chunk
+	written    map[int64]bool
+	//chunkCount map[string]int64
+}
+
+func Map(manifestFile string, store ChunkStore, targetFile string) error {
+	manifest, err := NewManifestFromFile(manifestFile)
+	if err != nil {
+		return err
+	}
+
+	var target *os.File
+	if targetFile != "" {
+		target, err = os.OpenFile(targetFile, os.O_CREATE | os.O_RDWR | os.O_TRUNC, 0600)
+		if err != nil {
+			return err
+		}
+
+		if err := target.Truncate(manifest.Size()); err != nil {
+			return err
+		}
+	}
+
+	deviceName, err := findNextNbdDevice()
+	if err != nil {
+		return err
+	}
+
+	debugf("Creating device %s ...\n", deviceName)
+
+	image := NewManifestImage(manifest, store, target)
+	device, err := buse.CreateDevice(deviceName, uint(manifest.Size()), image)
+	if err != nil {
+		return err
+	}
+
+	sig := make(chan os.Signal)
+	signal.Notify(sig, os.Interrupt)
+	go func() {
+		if err := device.Connect(); err != nil {
+			log.Printf("Buse device stopped with error: %s", err)
+		} else {
+			log.Println("Buse device stopped gracefully.")
+		}
+	}()
+
+	<-sig
+
+	// Received SIGTERM, cleanup
+	debugf("SIGINT, disconnecting...\n")
+	device.Disconnect()
+
+	return nil
 }
 
 func NewManifestImage(manifest *manifest, store ChunkStore, target *os.File) *manifestImage {
 	return &manifestImage{
-		manifest:    manifest,
-		store:       store,
-		target:      target,
-		cache:       NewFileChunkStore("cache"),
-		breakpoints: manifest.Breakpoints(), // cache !
-		chunks:      manifest.Chunks(),      // cache !
-		written:     make(map[int64]bool),
+		manifest: manifest,
+		store:    store,
+		target:   target,
+		cache:    NewFileChunkStore("cache"),
+		offsets:  manifest.Offsets(), // cache !
+		chunks:   manifest.Chunks(),  // cache !
+		written:  make(map[int64]bool, 0),
+		// chunkCount: make(map[string]int64, 0),
 	}
 }
 
@@ -83,9 +135,9 @@ func (d *manifestImage) syncSlices(from int64, to int64) error {
 	fromOffset := int64(-1)
 	toIndex := int64(-1)
 
-	for i := int64(0); i < int64(len(d.breakpoints)); i++ {
-		part := d.manifest.Get(d.breakpoints[i])
-		partStart := d.breakpoints[i]
+	for i := int64(0); i < int64(len(d.offsets)); i++ {
+		part := d.manifest.Get(d.offsets[i])
+		partStart := d.offsets[i]
 		partEnd := partStart + part.to - part.from
 
 		if partStart <= from && from < partEnd {
@@ -106,7 +158,7 @@ func (d *manifestImage) syncSlices(from int64, to int64) error {
 
 	offset := fromOffset
 	for i := fromIndex; i <= toIndex; i++ {
-		part := d.manifest.Get(d.breakpoints[i])
+		part := d.manifest.Get(d.offsets[i])
 		if err := d.syncSlice(offset, part); err != nil {
 			return err
 		}
@@ -175,56 +227,6 @@ func (d *manifestImage) Flush() error {
 }
 
 func (d *manifestImage) Trim(off, length uint) error {
-	return nil
-}
-
-func Map(manifestFile string, store ChunkStore, targetFile string) error {
-	manifest, err := NewManifestFromFile(manifestFile)
-	if err != nil {
-		return err
-	}
-
-	var target *os.File
-	if targetFile != "" {
-		target, err = os.OpenFile(targetFile, os.O_CREATE | os.O_RDWR | os.O_TRUNC, 0600)
-		if err != nil {
-			return err
-		}
-
-		if err := target.Truncate(manifest.Size()); err != nil {
-			return err
-		}
-	}
-
-	deviceName, err := findNextNbdDevice()
-	if err != nil {
-		return err
-	}
-
-	debugf("Creating device %s ...\n", deviceName)
-
-	image := NewManifestImage(manifest, store, target)
-	device, err := buse.CreateDevice(deviceName, uint(manifest.Size()), image)
-	if err != nil {
-		return err
-	}
-
-	sig := make(chan os.Signal)
-	signal.Notify(sig, os.Interrupt)
-	go func() {
-		if err := device.Connect(); err != nil {
-			log.Printf("Buse device stopped with error: %s", err)
-		} else {
-			log.Println("Buse device stopped gracefully.")
-		}
-	}()
-
-	<-sig
-
-	// Received SIGTERM, cleanup
-	debugf("SIGINT, disconnecting...\n")
-	device.Disconnect()
-
 	return nil
 }
 
