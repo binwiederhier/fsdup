@@ -79,6 +79,7 @@ func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile str
 func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, target *os.File) *manifestImage {
 	sliceCount := make(map[string]int64, 0)
 
+	// Create slice count map for cache accounting
 	for _, sliceOffset := range manifest.Offsets() {
 		slice := manifest.Get(sliceOffset)
 		if slice.checksum != nil {

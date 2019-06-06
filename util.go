@@ -67,7 +67,7 @@ func readAndCompare(reader io.ReaderAt, offset int64, expected []byte) error {
 	return nil
 }
 
-func convertToHumanReadable(b int64) string {
+func convertBytesToHumanReadable(b int64) string {
 	const unit = 1024
 
 	if b < unit {

@@ -158,14 +158,14 @@ func (d *ntfsChunker) Dedup() (*manifest, error) {
 		return nil, errors.New("invalid boot sector, invalid magic")
 	}
 
-	statusf("NTFS partition found at offset %d\n", d.start)
-
 	// Read basic information
 	d.sectorSize = parseUintLE(boot, ntfsBootSectorSizeOffset, ntfsBootSectorSizeLength)
 	d.sectorsPerCluster = parseUintLE(boot, ntfsBootSectorsPerClusterOffset, ntfsBootSectorsPerClusterLength)
 	d.totalSectors =  parseUintLE(boot, ntfsBootTotalSectorsOffset, ntfsBootTotalSectorsLength)
 	d.clusterSize = d.sectorSize * d.sectorsPerCluster
 	d.sizeInBytes = d.sectorSize * d.totalSectors + d.sectorSize // Backup boot sector at the end!
+
+	statusf("NTFS partition of size %s found at offset %d\n", convertBytesToHumanReadable(d.sizeInBytes), d.start)
 
 	// Read $MFT entry
 	mftClusterNumber := parseUintLE(boot, ntfsBootMftClusterNumberOffset, ntfsBootMftClusterNumberLength)
@@ -297,6 +297,7 @@ func (d *ntfsChunker) dedupFiles(mft *entry) error {
 
 	processedEntries := int64(0)
 	dedupedEntries := int64(0)
+	totalFileSize := int64(0)
 	maxEntries := int64(0)
 
 	for _, run := range mft.runs {
@@ -348,23 +349,26 @@ func (d *ntfsChunker) dedupFiles(mft *entry) error {
 				continue
 			}
 
-			statusf("Processing $MFT entry %d/%d (%d indexed, %d skipped) ...",
-				processedEntries, maxEntries, dedupedEntries, processedEntries - dedupedEntries)
+			statusf("Indexing file entry %d/%d (%s / %d indexed, %d skipped) ...",
+				processedEntries, maxEntries, convertBytesToHumanReadable(totalFileSize), dedupedEntries, processedEntries - dedupedEntries)
 
-			if err := d.dedupFile(entry); err != nil {
+			bytesIndexed, err := d.dedupFile(entry)
+			if err != nil {
 				offset += entry.allocatedSize
 				debugf("Entry at offset %d failed to be deduped:\n", offset, err.Error())
 				continue
 			}
 
 			debugf("Entry at offset %d successfully indexed\n", offset)
+
 			offset += entry.allocatedSize
+			totalFileSize += bytesIndexed
 			dedupedEntries++
 		}
 	}
 
-	statusf("Processed %d $MFT entries (%d indexed, %d skipped)\n",
-		processedEntries, dedupedEntries, processedEntries - dedupedEntries)
+	statusf("Indexed %s in %d file(s) (%d skipped)\n",
+		convertBytesToHumanReadable(totalFileSize), dedupedEntries, processedEntries - dedupedEntries)
 
 	return nil
 }
@@ -413,8 +417,9 @@ func (d *ntfsChunker) readRuns(entry []byte, offset int64) []run {
 	return runs
 }
 
-func (d *ntfsChunker) dedupFile(entry *entry) error {
+func (d *ntfsChunker) dedupFile(entry *entry) (int64, error) {
 	remainingToEndOfFile := entry.dataSize
+	bytesIndexed := int64(0)
 
 	slices := make(map[int64]*chunkSlice, 0)
 	d.chunk.Reset()
@@ -430,6 +435,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 			runOffset := run.fromOffset
 			runSize := minInt64(remainingToEndOfFile, run.size) // only read to filesize, doesnt always align with clusters!
 
+			bytesIndexed += runSize
 			remainingToEndOfFile -= runSize
 			remainingToEndOfRun := runSize
 
@@ -442,7 +448,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 
 				runBytesRead, err := d.reader.ReadAt(d.buffer[:runBytesMaxToBeRead], d.start + runOffset)
 				if err != nil {
-					return err
+					return 0, err
 				}
 
 				// Add run to chunk(s)
@@ -476,7 +482,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 
 					// Write chunk
 					if err := d.store.Write(d.chunk.Checksum(), d.chunk.Data()); err != nil {
-						return err
+						return 0, err
 					}
 
 					d.chunk.Reset()
@@ -517,11 +523,11 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 
 		debugf("- End of file. Emitting last chunk %x, size = %d\n", d.chunk.Checksum(), d.chunk.Size())
 		if err := d.store.Write(d.chunk.Checksum(), d.chunk.Data()); err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	return nil
+	return bytesIndexed, nil
 }
 
 // dedupUnused reads the NTFS $Bitmap file to find unused clusters and
@@ -530,7 +536,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) error {
 // The logic is a little simplified right now, as it treats the bit-map
 // as a byte-map, only looking at 8 empty clusters in a row (= 8 bits, 1 byte).
 func (d *ntfsChunker) dedupUnused(mft *entry) error {
-	statusf("Finding unused space via $Bitmap ...")
+	statusf("Indexing unused space ...")
 
 	// Find $Bitmap entry
 	var err error
@@ -611,7 +617,7 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 							})
 
 							sparseBytes += sparseSectionLength
-							statusf("Finding unused space via $Bitmap (%s marked sparse) ...", convertToHumanReadable(sparseBytes))
+							statusf("Finding unused space via $Bitmap (%s marked sparse) ...", convertBytesToHumanReadable(sparseBytes))
 						}
 					}
 				}
@@ -624,7 +630,7 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 		}
 	}
 
-	statusf("Found %s of unused space via $Bitmap\n", convertToHumanReadable(sparseBytes))
+	statusf("Indexed %s of unused space\n", convertBytesToHumanReadable(sparseBytes))
 
 	return nil
 }

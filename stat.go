@@ -121,25 +121,25 @@ func Stat(manifestFiles []string, verbose bool) error {
 
 	fmt.Printf("Manifests:                  %d\n", manifestCount)
 	fmt.Printf("Number of unique chunks:    %d\n", chunkCount)
-	fmt.Printf("Total image size:           %s (%d bytes)\n", convertToHumanReadable(totalImageSize), totalImageSize)
-	fmt.Printf("- Used:                     %s (%d bytes)\n", convertToHumanReadable(totalUsedSize), totalUsedSize)
-	fmt.Printf("  - Files:                  %s (%d bytes)\n", convertToHumanReadable(totalFileSize), totalFileSize)
-	fmt.Printf("  - Gaps:                   %s (%d bytes)\n", convertToHumanReadable(totalGapSize), totalGapSize)
-	fmt.Printf("  - Unknown:                %s (%d bytes)\n", convertToHumanReadable(totalUnknownSize), totalUnknownSize)
-	fmt.Printf("- Sparse/empty:             %s (%d bytes)\n", convertToHumanReadable(totalSparseSize), totalSparseSize)
-	fmt.Printf("Total chunk size:           %s (%d bytes)\n", convertToHumanReadable(totalChunkSize), totalChunkSize)
-	fmt.Printf("- File chunks:              %s (%d bytes)\n", convertToHumanReadable(totalFileChunkSize), totalFileChunkSize)
-	fmt.Printf("- Gap chunks:               %s (%d bytes)\n", convertToHumanReadable(totalGapChunkSize), totalGapChunkSize)
-	fmt.Printf("- Unkown chunks:            %s (%d bytes)\n", convertToHumanReadable(totalUnknownChunkSize), totalUnknownChunkSize)
-	fmt.Printf("Average chunk size:         %s (%d bytes)\n", convertToHumanReadable(averageChunkSize), averageChunkSize)
-	fmt.Printf("Median chunk size:          %s (%d bytes)\n", convertToHumanReadable(medianChunkSize), medianChunkSize)
+	fmt.Printf("Total image size:           %s (%d bytes)\n", convertBytesToHumanReadable(totalImageSize), totalImageSize)
+	fmt.Printf("- Used:                     %s (%d bytes)\n", convertBytesToHumanReadable(totalUsedSize), totalUsedSize)
+	fmt.Printf("  - Files:                  %s (%d bytes)\n", convertBytesToHumanReadable(totalFileSize), totalFileSize)
+	fmt.Printf("  - Gaps:                   %s (%d bytes)\n", convertBytesToHumanReadable(totalGapSize), totalGapSize)
+	fmt.Printf("  - Unknown:                %s (%d bytes)\n", convertBytesToHumanReadable(totalUnknownSize), totalUnknownSize)
+	fmt.Printf("- Sparse/empty:             %s (%d bytes)\n", convertBytesToHumanReadable(totalSparseSize), totalSparseSize)
+	fmt.Printf("Total chunk size:           %s (%d bytes)\n", convertBytesToHumanReadable(totalChunkSize), totalChunkSize)
+	fmt.Printf("- File chunks:              %s (%d bytes)\n", convertBytesToHumanReadable(totalFileChunkSize), totalFileChunkSize)
+	fmt.Printf("- Gap chunks:               %s (%d bytes)\n", convertBytesToHumanReadable(totalGapChunkSize), totalGapChunkSize)
+	fmt.Printf("- Unkown chunks:            %s (%d bytes)\n", convertBytesToHumanReadable(totalUnknownChunkSize), totalUnknownChunkSize)
+	fmt.Printf("Average chunk size:         %s (%d bytes)\n", convertBytesToHumanReadable(averageChunkSize), averageChunkSize)
+	fmt.Printf("Median chunk size:          %s (%d bytes)\n", convertBytesToHumanReadable(medianChunkSize), medianChunkSize)
 	fmt.Printf("Dedup ratio:                %.1f : 1\n", dedupRatio)
 	fmt.Printf("Space reduction:            %.1f %%\n", spaceReductionPercentage)
 
 	if verbose {
 		fmt.Printf("Slice histogram (top 10):\n")
 		for i, stat := range chunkStats {
-			fmt.Printf("- Chunk %x: %s in %d slice(s)\n", stat.checksum, convertToHumanReadable(stat.sliceSizes), stat.sliceCount)
+			fmt.Printf("- Chunk %x: %s in %d slice(s)\n", stat.checksum, convertBytesToHumanReadable(stat.sliceSizes), stat.sliceCount)
 			if i == 10 {
 				break
 			}

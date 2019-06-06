@@ -85,7 +85,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 
 				chunkBytes += chunk.Size()
 				chunkCount++
-				statusf("Creating gap chunk(s) (%d chunk(s), %s) ...", chunkCount, convertToHumanReadable(chunkBytes))
+				statusf("Creating gap chunk(s) (%d chunk(s), %s) ...", chunkCount, convertBytesToHumanReadable(chunkBytes))
 
 				currentOffset = chunkEndOffset
 			} else {
@@ -119,7 +119,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 
 					chunkBytes += chunk.Size()
 					chunkCount++
-					statusf("Creating gap chunk(s) (%d chunk(s), %s) ...", chunkCount, convertToHumanReadable(chunkBytes))
+					statusf("Creating gap chunk(s) (%d chunk(s), %s) ...", chunkCount, convertBytesToHumanReadable(chunkBytes))
 
 					debugf("offset %d - %d, NEW2 chunk %x, size %d\n",
 						currentOffset, currentOffset + bytesToBreakpoint, chunk.Checksum(), chunk.Size())
@@ -169,12 +169,12 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 
 			chunkBytes += chunk.Size()
 			chunkCount++
-			statusf("Creating gap chunks (%d chunk(s), %s) ...", chunkCount, convertToHumanReadable(chunkBytes))
+			statusf("Indexing gap chunks (%d chunk(s), %s) ...", chunkCount, convertBytesToHumanReadable(chunkBytes))
 
 			currentOffset = chunkEndOffset
 		}
 	}
 
-	statusf("Indexed %d gap chunk(s) (%s)\n", chunkCount, convertToHumanReadable(chunkBytes))
+	statusf("Indexed %s of gaps (%d chunk(s))\n", convertBytesToHumanReadable(chunkBytes), chunkCount)
 	return out, nil
 }
