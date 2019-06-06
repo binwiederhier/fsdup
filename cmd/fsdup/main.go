@@ -13,8 +13,7 @@ import (
 	"time"
 )
 
-// TODO [HIGH] Exclude large temp files (pagefile.sys, datto.ctl, ...)
-// TODO [HIGH] Identify why there are so many gap chunks
+// TODO [HIGH] "map": Make caching efficient
 // TODO [LOW] Find zeros in gaps, mark as sparse
 // TODO [LOW] Find zeros in FILE runs, mark as sparse
 // TODO [LOW] rename "size" to "length"
@@ -224,6 +223,7 @@ func printCommand(args []string) {
 func statCommand(args []string) {
 	flags := flag.NewFlagSet("stat", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
+	verboseFlag := flags.Bool("verbose", false, "Enable verbose mode")
 
 	flags.Parse(args)
 
@@ -237,7 +237,7 @@ func statCommand(args []string) {
 
 	manifests := flags.Args()
 
-	if err := fsdup.Stat(manifests); err != nil {
+	if err := fsdup.Stat(manifests, *verboseFlag); err != nil {
 		exit(2, "Cannot create manifest stats: " + string(err.Error()))
 	}
 }

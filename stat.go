@@ -7,11 +7,13 @@ import (
 )
 
 type chunkStat struct {
-	size int64
-	kind kind
+	checksum []byte
+	size     int64
+	slices   int64
+	kind     kind
 }
 
-func Stat(manifestFiles []string) error {
+func Stat(manifestFiles []string, verbose bool) error {
 	totalImageSize := int64(0)
 	totalFileSize := int64(0)
 	totalGapSize := int64(0)
@@ -26,6 +28,7 @@ func Stat(manifestFiles []string) error {
 
 	chunkMap := make(map[string]*chunkStat, 0) // checksum -> size
 	chunkSizes := make([]int64, 0)
+	chunkStats := make([]*chunkStat, 0)
 
 	for _, manifestFile := range manifestFiles {
 		manifest, err := NewManifestFromFile(manifestFile)
@@ -36,43 +39,48 @@ func Stat(manifestFiles []string) error {
 		usedSize := int64(0)
 		totalImageSize += manifest.Size()
 
-		for _, breakpoint := range manifest.Offsets() {
-			part := manifest.Get(breakpoint)
+		for _, offset := range manifest.Offsets() {
+			slice := manifest.Get(offset)
 
 			// Ignore sparse sections
-			if part.checksum == nil {
-				totalSparseSize += part.to - part.from
+			if slice.checksum == nil {
+				totalSparseSize += slice.to - slice.from
 				continue
 			}
 
-			partSize := part.to - part.from
-			usedSize += partSize
+			sliceSize := slice.to - slice.from
+			usedSize += sliceSize
 
-			if part.kind == kindFile {
-				totalFileSize += partSize
-			} else if part.kind == kindGap {
-				totalGapSize += partSize
+			if slice.kind == kindFile {
+				totalFileSize += sliceSize
+			} else if slice.kind == kindGap {
+				totalGapSize += sliceSize
 			} else {
-				totalUnknownSize += partSize
+				totalUnknownSize += sliceSize
 			}
 
 			// This is a weird way to get the chunk size, but hey ...
-			checksumStr := fmt.Sprintf("%x", part.checksum)
+			checksumStr := fmt.Sprintf("%x", slice.checksum)
 
 			if _, ok := chunkMap[checksumStr]; !ok {
 				chunkMap[checksumStr] = &chunkStat{
-					size: part.to,
-					kind: part.kind, // This is inaccurate, because only the first appearance of the chunk is counted!
+					checksum: slice.checksum,
+					size:     slice.to,
+					slices:   1,
+					kind:     slice.kind, // This is inaccurate, because only the first appearance of the chunk is counted!
 				}
 			} else {
-				chunkMap[checksumStr].size = maxInt64(chunkMap[checksumStr].size, part.to)
+				chunkMap[checksumStr].size = maxInt64(chunkMap[checksumStr].size, slice.to)
+				chunkMap[checksumStr].slices++
 			}
 		}
 	}
 
+	// Find chunk sizes by type
 	for _, stat := range chunkMap {
 		totalChunkSize += stat.size
 		chunkSizes = append(chunkSizes, stat.size)
+		chunkStats = append(chunkStats, stat)
 
 		if stat.kind == kindFile {
 			totalFileChunkSize += stat.size
@@ -83,6 +91,7 @@ func Stat(manifestFiles []string) error {
 		}
 	}
 
+	// Find median chunk size
 	sort.Slice(chunkSizes, func(i, j int) bool {
 		return chunkSizes[i] < chunkSizes[j]
 	})
@@ -93,6 +102,11 @@ func Stat(manifestFiles []string) error {
 	} else {
 		medianChunkSize = chunkSizes[(len(chunkSizes)-1)/2]
 	}
+
+	// Find chunk histogram
+	sort.Slice(chunkStats, func(i, j int) bool {
+		return chunkStats[i].slices > chunkStats[j].slices
+	})
 
 	manifestCount := int64(len(manifestFiles))
 	chunkCount := int64(len(chunkMap))
@@ -118,6 +132,16 @@ func Stat(manifestFiles []string) error {
 	fmt.Printf("Median chunk size:          %s (%d bytes)\n", convertToHumanReadable(medianChunkSize), medianChunkSize)
 	fmt.Printf("Dedup ratio:                %.1f : 1\n", dedupRatio)
 	fmt.Printf("Space reduction:            %.1f %%\n", spaceReductionPercentage)
+
+	if verbose {
+		fmt.Printf("Slice histogram (top 10):\n")
+		for i, stat := range chunkStats {
+			fmt.Printf("- Chunk %x appeared in %d slice(s)\n", stat.checksum, stat.slices)
+			if i == 10 {
+				break
+			}
+		}
+	}
 
 	return nil
 }
