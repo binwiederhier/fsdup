@@ -24,6 +24,7 @@ type manifestImage struct {
 	chunks     map[string]*chunk
 	written    map[int64]bool
 	sliceCount map[string]int64
+	buffer     []byte
 }
 
 func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile string) error {
@@ -102,6 +103,7 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 		chunks:     manifest.Chunks(),  // cache !
 		written:    make(map[int64]bool, 0),
 		sliceCount: sliceCount,
+		buffer:     make([]byte, chunkSizeMaxBytes),
 	}
 }
 
@@ -195,12 +197,13 @@ func (d *manifestImage) syncSlice(offset int64, slice *chunkSlice) error {
 		return nil
 	}
 
+	buffer := d.buffer
 	length := slice.to - slice.from
 	debugf("Syncing diskoff %d - %d (len %d) -> checksum %x, %d to %d\n",
 		offset, offset + length, length, slice.checksum, slice.from, slice.to)
 
 	checksumStr := fmt.Sprintf("%x", slice.checksum)
-	buffer := make([]byte, chunkSizeMaxBytes) // FIXME: Make this a buffer pool
+
 	read, err := d.cache.ReadAt(slice.checksum, buffer[:length], slice.from)
 	if err != nil {
 		debugf("Chunk %x not in cache. Retrieving full chunk ...\n", slice.checksum)
