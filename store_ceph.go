@@ -28,6 +28,10 @@ func NewCephStore(configFile string, pool string, compress bool) *cephChunkStore
 }
 
 func (idx *cephChunkStore) Stat(checksum []byte) error {
+	if err := idx.openPool(); err != nil {
+		return err
+	}
+
 	checksumStr := fmt.Sprintf("%x", checksum)
 
 	if _, ok := idx.chunkMap[checksumStr]; ok {

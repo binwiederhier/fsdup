@@ -49,6 +49,7 @@ func Import(manifestFile string, store ChunkStore, inputFile string) error {
 		if err := store.Stat(checksum); err == nil {
 			debugf("Skipping chunk. Already exists in index.\n")
 			skipped++
+			imported++
 			continue
 		}
 
