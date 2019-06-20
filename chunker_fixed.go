@@ -76,11 +76,14 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				debugf("offset %d - %d, NEW chunk %x, size %d\n",
 					currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
 
-				out.Add(currentOffset, &chunkSlice{
-					checksum: chunk.Checksum(),
-					from: 0,
-					to: chunk.Size(),
-					kind: kindGap,
+				out.Add(&chunkSlice{
+					checksum:  chunk.Checksum(),
+					kind:      kindGap,
+					diskfrom:  currentOffset,
+					diskto:    currentOffset + chunk.Size(),
+					chunkfrom: 0,
+					chunkto:   chunk.Size(),
+					length:    chunk.Size(),
 				})
 
 				chunkBytes += chunk.Size()
@@ -110,11 +113,14 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 						return nil, err
 					}
 
-					out.Add(currentOffset, &chunkSlice{
-						checksum: chunk.Checksum(),
-						from: 0,
-						to: chunk.Size(),
-						kind: kindGap,
+					out.Add(&chunkSlice{
+						checksum:  chunk.Checksum(),
+						kind:      kindGap,
+						diskfrom:  currentOffset,
+						diskto:    currentOffset + chunk.Size(),
+						chunkfrom: 0,
+						chunkto:   chunk.Size(),
+						length:    chunk.Size(),
 					})
 
 					chunkBytes += chunk.Size()
@@ -131,10 +137,10 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				// Simply add this entry to the manifest.
 
 				part := d.skip.Get(breakpoint)
-				partSize := part.to - part.from
+				partSize := part.chunkto - part.chunkfrom
 
 				debugf("offset %d - %d, size %d  -> FILE chunk %x, offset %d - %d\n",
-					currentOffset, currentOffset + partSize, partSize, part.checksum, part.from, part.to)
+					currentOffset, currentOffset + partSize, partSize, part.checksum, part.chunkfrom, part.chunkto)
 
 				currentOffset += partSize
 				breakpointIndex++
@@ -160,11 +166,14 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 			debugf("offset %d - %d, NEW3 chunk %x, size %d\n",
 				currentOffset, chunkEndOffset, chunk.Checksum(), chunk.Size())
 
-			out.Add(currentOffset, &chunkSlice{
-				checksum: chunk.Checksum(),
-				from: 0,
-				to: chunk.Size(),
-				kind: kindGap,
+			out.Add(&chunkSlice{
+				checksum:  chunk.Checksum(),
+				kind:      kindGap,
+				diskfrom:  currentOffset,
+				diskto:    currentOffset + chunk.Size(),
+				chunkfrom: 0,
+				chunkto:   chunk.Size(),
+				length:    chunk.Size(),
 			})
 
 			chunkBytes += chunk.Size()

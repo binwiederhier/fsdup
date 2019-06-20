@@ -156,7 +156,7 @@ func (d *manifestImage) syncSlices(from int64, to int64) error {
 	for i := int64(0); i < int64(len(d.offsets)); i++ {
 		slice := d.manifest.Get(d.offsets[i])
 		sliceStart := d.offsets[i]
-		sliceEnd := sliceStart + slice.to - slice.from
+		sliceEnd := sliceStart + slice.chunkto - slice.chunkfrom
 
 		if sliceStart <= from && from < sliceEnd {
 			fromIndex = i
@@ -181,7 +181,7 @@ func (d *manifestImage) syncSlices(from int64, to int64) error {
 			return err
 		}
 
-		offset += slice.to - slice.from
+		offset += slice.chunkto - slice.chunkfrom
 	}
 
 	return nil
@@ -198,13 +198,13 @@ func (d *manifestImage) syncSlice(offset int64, slice *chunkSlice) error {
 	}
 
 	buffer := d.buffer
-	length := slice.to - slice.from
+	length := slice.chunkto - slice.chunkfrom
 	debugf("Syncing diskoff %d - %d (len %d) -> checksum %x, %d to %d\n",
-		offset, offset + length, length, slice.checksum, slice.from, slice.to)
+		offset, offset + length, length, slice.checksum, slice.chunkfrom, slice.chunkto)
 
 	checksumStr := fmt.Sprintf("%x", slice.checksum)
 
-	read, err := d.cache.ReadAt(slice.checksum, buffer[:length], slice.from)
+	read, err := d.cache.ReadAt(slice.checksum, buffer[:length], slice.chunkfrom)
 	if err != nil {
 		debugf("Chunk %x not in cache. Retrieving full chunk ...\n", slice.checksum)
 
@@ -223,7 +223,7 @@ func (d *manifestImage) syncSlice(offset int64, slice *chunkSlice) error {
 			return err
 		}
 
-		buffer = buffer[slice.from:slice.to]
+		buffer = buffer[slice.chunkfrom:slice.chunkto]
 	} else if int64(read) != length {
 		return errors.New(fmt.Sprintf("cannot read entire slice, read only %d bytes", read))
 	}

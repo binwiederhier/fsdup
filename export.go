@@ -27,14 +27,14 @@ func Export(manifestFile string, store ChunkStore, outputFile string) error {
 	for _, breakpoint := range manifest.Offsets() {
 		part := manifest.Get(breakpoint)
 		sparse := part.checksum == nil
-		length := part.to - part.from
+		length := part.chunkto - part.chunkfrom
 
 		if sparse {
 			debugf("%013d Skipping sparse section of %d bytes\n", offset, length)
 		} else {
-			debugf("%013d Writing chunk %x, offset %d - %d (size %d)\n", offset, part.checksum, part.from, part.to, length)
+			debugf("%013d Writing chunk %x, offset %d - %d (size %d)\n", offset, part.checksum, part.chunkfrom, part.chunkto, length)
 
-			read, err := store.ReadAt(part.checksum, buffer[:length], part.from)
+			read, err := store.ReadAt(part.checksum, buffer[:length], part.chunkfrom)
 			if err != nil {
 				return err
 			} else if int64(read) != length {

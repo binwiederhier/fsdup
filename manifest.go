@@ -22,16 +22,10 @@ type manifest struct {
 }
 
 type chunkSlice struct {
-	checksum []byte
-	from int64
-	to int64
-	kind kind
-}
-
-type diskSlice struct {
+	checksum  []byte
+	kind      kind
 	diskfrom  int64
 	diskto    int64
-	checksum  []byte
 	chunkfrom int64
 	chunkto   int64
 	length    int64
@@ -59,11 +53,14 @@ func NewManifestFromFile(file string) (*manifest, error) {
 	offset := int64(0)
 
 	for _, slice := range pbmanifest.Slices {
-		manifest.Add(offset, &chunkSlice{
-			checksum: slice.Checksum,
-			from: slice.Offset,
-			to: slice.Offset + slice.Length,
-			kind: kind(slice.Kind),
+		manifest.Add(&chunkSlice{
+			checksum:  slice.Checksum,
+			kind:      kind(slice.Kind),
+			diskfrom:  offset,
+			diskto:    offset + slice.Length,
+			chunkfrom: slice.Offset,
+			chunkto:   slice.Offset + slice.Length,
+			length:    slice.Length,
 		})
 
 		offset += slice.Length
@@ -98,10 +95,10 @@ func (m *manifest) Chunks() map[string]*chunk {
 		if _, ok := chunks[checksumStr]; !ok {
 			chunks[checksumStr] = &chunk{
 				checksum: slice.checksum,
-				size:     slice.to,
+				size:     slice.chunkto,
 			}
 		} else {
-			chunks[checksumStr].size = maxInt64(chunks[checksumStr].size, slice.to)
+			chunks[checksumStr].size = maxInt64(chunks[checksumStr].size, slice.chunkto)
 		}
 	}
 
@@ -110,20 +107,7 @@ func (m *manifest) Chunks() map[string]*chunk {
 
 // ChunkSlices returns a map of chunks and its sections on disk.
 // The key is a hex representation of the chunk checksum.
-func (m *manifest) ChunkSlices() (map[string][]*diskSlice, error) {
-	// Create the better manifest
-	manifest := make(map[int64]*diskSlice, 0)
-	for offset, slice := range m.diskMap {
-		manifest[offset] = &diskSlice{
-			diskfrom: offset,
-			diskto: offset + slice.to - slice.from,
-			checksum: slice.checksum,
-			chunkfrom: slice.from,
-			chunkto: slice.to,
-			length: slice.to - slice.from,
-		}
-	}
-
+func (m *manifest) ChunkSlices() (map[string][]*chunkSlice, error) {
 	// First, we'll sort all slices into a map grouped by chunk checksum. This
 	// produces a map with potentially overlapping slices:
 	//
@@ -135,20 +119,20 @@ func (m *manifest) ChunkSlices() (map[string][]*diskSlice, error) {
 	//       (from:0,      to:16384),    < overlaps with two slices
 	//   )
 
-	chunkSlices := make(map[string][]*diskSlice, 0)
+	checksumSlicesMap := make(map[string][]*chunkSlice, 0)
 
-	for _, slice := range manifest {
+	for _, slice := range m.diskMap {
 		if slice.checksum == nil {
 			continue
 		}
 
 		checksumStr := fmt.Sprintf("%x", slice.checksum)
 
-		if _, ok := chunkSlices[checksumStr]; !ok {
-			chunkSlices[checksumStr] = make([]*diskSlice, 0)
+		if _, ok := checksumSlicesMap[checksumStr]; !ok {
+			checksumSlicesMap[checksumStr] = make([]*chunkSlice, 0)
 		}
 
-		chunkSlices[checksumStr] = append(chunkSlices[checksumStr], slice)
+		checksumSlicesMap[checksumStr] = append(checksumSlicesMap[checksumStr], slice)
 	}
 
 	// Now, we'll sort each disk slice list by "from" (smallest first),
@@ -163,14 +147,14 @@ func (m *manifest) ChunkSlices() (map[string][]*diskSlice, error) {
 	//       (from:36864,  to:65536),
 	//   )
 
-	for _, diskSlices := range chunkSlices {
-		sort.Slice(diskSlices, func(i, j int) bool {
-			if diskSlices[i].chunkfrom > diskSlices[j].chunkfrom {
+	for _, slices := range checksumSlicesMap {
+		sort.Slice(slices, func(i, j int) bool {
+			if slices[i].chunkfrom > slices[j].chunkfrom {
 				return false
-			} else if diskSlices[i].chunkfrom < diskSlices[j].chunkfrom {
+			} else if slices[i].chunkfrom < slices[j].chunkfrom {
 				return true
 			} else {
-				return diskSlices[i].chunkto > diskSlices[j].chunkto
+				return slices[i].chunkto > slices[j].chunkto
 			}
 		})
 	}
@@ -183,33 +167,33 @@ func (m *manifest) ChunkSlices() (map[string][]*diskSlice, error) {
 	//       (from:36864,  to:65536),
 	//   )
 
-	for checksumStr, diskSlices := range chunkSlices {
-		if len(diskSlices) == 1 {
+	for checksumStr, slices := range checksumSlicesMap {
+		if len(slices) == 1 {
 			continue
 		}
 
-		newDiskSlices := make([]*diskSlice, 1)
-		newDiskSlices[0] = diskSlices[0]
+		newSlices := make([]*chunkSlice, 1)
+		newSlices[0] = slices[0]
 
-		for c, n := 0, 1; c < len(diskSlices) && n < len(diskSlices); n++ {
-			current := diskSlices[c]
-			next := diskSlices[n]
+		for c, n := 0, 1; c < len(slices) && n < len(slices); n++ {
+			current := slices[c]
+			next := slices[n]
 
 			if current.chunkto == next.chunkfrom {
-				newDiskSlices = append(newDiskSlices, next)
+				newSlices = append(newSlices, next)
 				c = n
 			}
 		}
 
-		chunkSlices[checksumStr] = newDiskSlices
+		checksumSlicesMap[checksumStr] = newSlices
 	}
 
-	return chunkSlices, nil
+	return checksumSlicesMap, nil
 }
 
 // ChecksumsByDiskOffset orders the given list by first slice disk offset. This
 // is useful to read all chunks as sequential as possible.
-func (m *manifest) ChecksumsByDiskOffset(chunkSlices map[string][]*diskSlice) []string {
+func (m *manifest) ChecksumsByDiskOffset(chunkSlices map[string][]*chunkSlice) []string {
 	checksumStrs := make([]string, 0)
 	for checksumStr, _ := range chunkSlices {
 		checksumStrs = append(checksumStrs, checksumStr)
@@ -223,8 +207,8 @@ func (m *manifest) ChecksumsByDiskOffset(chunkSlices map[string][]*diskSlice) []
 }
 
 // Add adds a chunk slice to the manifest at the given from
-func (m *manifest) Add(offset int64, slice *chunkSlice) {
-	m.diskMap[offset] = slice
+func (m *manifest) Add(slice *chunkSlice) {
+	m.diskMap[slice.diskfrom] = slice
 }
 
 // Get receives a chunk slice from the manifest at the given from.
@@ -238,7 +222,7 @@ func (m *manifest) Size() int64 {
 
 	for offset, _ := range m.diskMap {
 		slice := m.diskMap[offset]
-		size = maxInt64(size, offset + slice.to - slice.from)
+		size = maxInt64(size, offset + slice.chunkto- slice.chunkfrom)
 	}
 
 	return size
@@ -267,8 +251,8 @@ func (m *manifest) WriteToFile(file string) error {
 		slice := m.diskMap[offset]
 		pbmanifest.Slices[i] = &pb.Slice{
 			Checksum: slice.checksum,
-			Offset:   slice.from,
-			Length:   slice.to - slice.from,
+			Offset:   slice.chunkfrom,
+			Length:   slice.chunkto - slice.chunkfrom,
 			Kind:     int32(slice.kind),
 		}
 	}
@@ -292,7 +276,7 @@ func (m *manifest) PrintDisk() {
 
 		if slice.checksum == nil {
 			fmt.Printf("idx %-10d diskoff %13d - %13d len %-13d sparse     -\n",
-				i, offset, offset + slice.to - slice.from, slice.to - slice.from)
+				i, offset, offset + slice.chunkto- slice.chunkfrom, slice.chunkto- slice.chunkfrom)
 		} else {
 			kind := "unknown"
 			if slice.kind == kindGap {
@@ -302,7 +286,7 @@ func (m *manifest) PrintDisk() {
 			}
 
 			fmt.Printf("idx %-10d diskoff %13d - %13d len %-13d %-10s chunk %64x chunkoff %10d - %10d\n",
-				i, offset, offset + slice.to - slice.from, slice.to - slice.from, kind, slice.checksum, slice.from, slice.to)
+				i, offset, offset + slice.chunkto- slice.chunkfrom, slice.chunkto- slice.chunkfrom, kind, slice.checksum, slice.chunkfrom, slice.chunkto)
 		}
 	}
 }

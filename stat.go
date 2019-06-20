@@ -48,11 +48,11 @@ func Stat(manifestFiles []string, verbose bool) error {
 
 			// Ignore sparse sections
 			if slice.checksum == nil {
-				totalSparseSize += slice.to - slice.from
+				totalSparseSize += slice.chunkto - slice.chunkfrom
 				continue
 			}
 
-			sliceSize := slice.to - slice.from
+			sliceSize := slice.chunkto - slice.chunkfrom
 			usedSize += sliceSize
 
 			if slice.kind == kindFile {
@@ -69,13 +69,13 @@ func Stat(manifestFiles []string, verbose bool) error {
 			if _, ok := chunkMap[checksumStr]; !ok {
 				chunkMap[checksumStr] = &chunkStat{
 					checksum:   slice.checksum,
-					size:       slice.to,
+					size:       slice.chunkto,
 					sliceCount: 1,
 					sliceSizes: sliceSize,
 					kind:       slice.kind, // This is inaccurate, because only the first appearance of the chunk is counted!
 				}
 			} else {
-				chunkMap[checksumStr].size = maxInt64(chunkMap[checksumStr].size, slice.to)
+				chunkMap[checksumStr].size = maxInt64(chunkMap[checksumStr].size, slice.chunkto)
 				chunkMap[checksumStr].sliceCount++
 				chunkMap[checksumStr].sliceSizes += sliceSize
 			}
