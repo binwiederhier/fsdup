@@ -19,6 +19,20 @@ func NewFileChunkStore(root string) *fileChunkStore {
 	}
 }
 
+func (idx *fileChunkStore) Stat(checksum []byte) error {
+	checksumStr := fmt.Sprintf("%x", checksum)
+
+	if _, ok := idx.chunkMap[checksumStr]; ok {
+		return nil
+	}
+
+	dir := fmt.Sprintf("%s/%s/%s", idx.root, checksumStr[0:3], checksumStr[3:6])
+	file := fmt.Sprintf("%s/%s", dir, checksumStr)
+
+	_, err := os.Stat(file)
+	return err
+}
+
 func (idx *fileChunkStore) Write(checksum []byte, buffer []byte) error {
 	checksumStr := fmt.Sprintf("%x", checksum)
 
@@ -79,6 +93,8 @@ func (idx *fileChunkStore) Remove(checksum []byte) error {
 
 	os.Remove(dir2)
 	os.Remove(dir1)
+
+	delete(idx.chunkMap, checksumStr)
 
 	return nil
 }

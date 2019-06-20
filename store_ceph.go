@@ -1,24 +1,41 @@
 package fsdup
 
 import (
-	"errors"
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"github.com/ceph/go-ceph/rados"
+	"io/ioutil"
 )
 
 type cephChunkStore struct {
 	configFile string
 	pool string
+	compress bool
 	ctx *rados.IOContext
 	chunkMap map[string]bool
+	buffer []byte
 }
 
-func NewCephStore(configFile string, pool string) *cephChunkStore {
+func NewCephStore(configFile string, pool string, compress bool) *cephChunkStore {
 	return &cephChunkStore{
 		configFile: configFile,
 		pool:       pool,
+		compress:   compress,
 		chunkMap:   make(map[string]bool, 0),
+		buffer:     make([]byte, chunkSizeMaxBytes),
 	}
+}
+
+func (idx *cephChunkStore) Stat(checksum []byte) error {
+	checksumStr := fmt.Sprintf("%x", checksum)
+
+	if _, ok := idx.chunkMap[checksumStr]; ok {
+		return nil
+	}
+
+	_, err := idx.ctx.Stat(checksumStr)
+	return err
 }
 
 func (idx *cephChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) (int, error) {
@@ -27,14 +44,41 @@ func (idx *cephChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) 
 	}
 
 	checksumStr := fmt.Sprintf("%x", checksum)
-	read, err := idx.ctx.Read(checksumStr, buffer, uint64(offset))
-	if err != nil {
-		return 0, err
-	} else if read != len(buffer) {
-		return 0, errors.New("cannot read full section")
-	}
 
-	return read, nil
+	if idx.compress {
+		// FIXME this reads the ENTIRE object, gunzips it, and then only reads the requested section.
+		//  don't kill me this is a PoC
+
+		read, err := idx.ctx.Read(checksumStr, idx.buffer, 0)
+		if err != nil {
+			return 0, err
+		}
+
+		reader, err := gzip.NewReader(bytes.NewReader(idx.buffer[:read]))
+		if err != nil {
+			return 0, err
+		}
+
+		decompressed, err := ioutil.ReadAll(reader)
+		if err != nil {
+			return 0, err
+		}
+
+		length := len(buffer)
+		end := int64(offset)+int64(length)
+		copy(buffer, decompressed[offset:end]) // FIXME urgh ...
+
+		//fmt.Printf("%d - %d = %x\n", from, end, buffer)
+		return length, nil
+
+	} else {
+		read, err := idx.ctx.Read(checksumStr, buffer, uint64(offset))
+		if err != nil {
+			return 0, err
+		}
+
+		return read, nil
+	}
 }
 
 func (idx *cephChunkStore) Write(checksum []byte, buffer []byte) error {
@@ -46,8 +90,25 @@ func (idx *cephChunkStore) Write(checksum []byte, buffer []byte) error {
 
 	if _, ok := idx.chunkMap[checksumStr]; !ok {
 		if _, err := idx.ctx.Stat(checksumStr); err != nil {
-			if err := idx.ctx.Write(checksumStr, buffer, 0); err != nil {
-				return err
+			if idx.compress {
+				var b bytes.Buffer
+				writer := gzip.NewWriter(&b)
+
+				if _, err := writer.Write(buffer); err != nil {
+					return err
+				}
+
+				if err := writer.Close(); err != nil {
+					return err
+				}
+
+				if err := idx.ctx.Write(checksumStr, b.Bytes(), 0); err != nil {
+					return err
+				}
+			} else {
+				if err := idx.ctx.Write(checksumStr, buffer, 0); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -67,6 +128,8 @@ func (idx *cephChunkStore) Remove(checksum []byte) error {
 	if err != nil {
 		return err
 	}
+
+	delete(idx.chunkMap, checksumStr)
 
 	return nil
 }

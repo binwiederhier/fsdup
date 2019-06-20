@@ -31,7 +31,10 @@ func Stat(manifestFiles []string, verbose bool) error {
 	chunkSizes := make([]int64, 0)
 	chunkStats := make([]*chunkStat, 0)
 
-	for _, manifestFile := range manifestFiles {
+	for i, manifestFile := range manifestFiles {
+		statusf("Reading manifest %d/%d ...", i, len(manifestFiles))
+		debugf("Reading manifest file %s ...\n", manifestFile)
+
 		manifest, err := NewManifestFromFile(manifestFile)
 		if err != nil {
 			return err
@@ -79,6 +82,8 @@ func Stat(manifestFiles []string, verbose bool) error {
 		}
 	}
 
+	statusf("Crunching numbers ...")
+
 	// Find chunk sizes by type
 	for _, stat := range chunkMap {
 		totalChunkSize += stat.size
@@ -118,6 +123,8 @@ func Stat(manifestFiles []string, verbose bool) error {
 	totalUsedSize := totalImageSize - totalSparseSize
 	dedupRatio := float64(totalUsedSize) / float64(totalChunkSize) // as x:1 ratio
 	spaceReductionPercentage := (1 - 1/dedupRatio) * 100           // in %
+
+	statusf("")
 
 	fmt.Printf("Manifests:                  %d\n", manifestCount)
 	fmt.Printf("Number of unique chunks:    %d\n", chunkCount)

@@ -28,6 +28,15 @@ type chunkSlice struct {
 	kind kind
 }
 
+type diskSlice struct {
+	diskfrom  int64
+	diskto    int64
+	checksum  []byte
+	chunkfrom int64
+	chunkto   int64
+	length    int64
+}
+
 func NewManifest() *manifest {
 	return &manifest{
 		size: 0,
@@ -80,29 +89,132 @@ func (m *manifest) Offsets() []int64 {
 // Chunks returns a map of chunks in this manifest. It does not contain the chunk data.
 // The key is a hex representation of the chunk checksum.
 func (m *manifest) Chunks() map[string]*chunk {
-	chunkMap := make(map[string]*chunk, 0)
+	chunks := make(map[string]*chunk, 0)
 
-	for _, part := range m.diskMap {
+	for _, slice := range m.diskMap {
 		// This is a weird way to get the chunk size, but hey ...
-		checksumStr := fmt.Sprintf("%x", part.checksum)
+		checksumStr := fmt.Sprintf("%x", slice.checksum)
 
-		if _, ok := chunkMap[checksumStr]; !ok {
-			chunkMap[checksumStr] = &chunk{
-				checksum: part.checksum,
-				size: part.to,
+		if _, ok := chunks[checksumStr]; !ok {
+			chunks[checksumStr] = &chunk{
+				checksum: slice.checksum,
+				size:     slice.to,
 			}
 		} else {
-			chunkMap[checksumStr].size = maxInt64(chunkMap[checksumStr].size, part.to)
+			chunks[checksumStr].size = maxInt64(chunks[checksumStr].size, slice.to)
 		}
 	}
 
-	return chunkMap
+	return chunks
 }
 
+// ChunkSlices returns a map of chunks and its sections on disk.
+// The key is a hex representation of the chunk checksum.
+
+func (m *manifest) ChunkSlices() (map[string][]*diskSlice, error) {
+	// Create the better manifest
+	manifest := make(map[int64]*diskSlice, 0)
+	for offset, slice := range m.diskMap {
+		manifest[offset] = &diskSlice{
+			diskfrom: offset,
+			diskto: offset + slice.to - slice.from,
+			checksum: slice.checksum,
+			chunkfrom: slice.from,
+			chunkto: slice.to,
+			length: slice.to - slice.from,
+		}
+	}
+
+	// First, we'll sort all slices into a map grouped by chunk checksum. This
+	// produces a map with potentially overlapping slices:
+	//
+	//   slices[aabbee..] = (
+	//       (from:16384,  to:36864),
+	//       (from:0,      to:8192),
+	//       (from:8192,   to:16384),
+	//       (from:36864,  to:65536),
+	//       (from:0,      to:16384),    < overlaps with two slices
+	//   )
+
+	chunkSlices := make(map[string][]*diskSlice, 0)
+
+	for _, slice := range manifest {
+		if slice.checksum == nil {
+			continue
+		}
+
+		checksumStr := fmt.Sprintf("%x", slice.checksum)
+
+		if _, ok := chunkSlices[checksumStr]; !ok {
+			chunkSlices[checksumStr] = make([]*diskSlice, 0)
+		}
+
+		chunkSlices[checksumStr] = append(chunkSlices[checksumStr], slice)
+	}
+
+	// Now, we'll sort each disk slice list by "from" (smallest first),
+	// and if the "from" fields are equal, by the "to" field (highest first);
+	// this is to prefer larger sections.
+	//
+	//   slices[aabbee..] = (
+	//       (from:0,      to:16384),    < overlaps with next two slices
+	//       (from:0,      to:8192),
+	//       (from:8192,   to:16384),
+	//       (from:16384,  to:36864),
+	//       (from:36864,  to:65536),
+	//   )
+
+	for _, diskSlices := range chunkSlices {
+		sort.Slice(diskSlices, func(i, j int) bool {
+			if diskSlices[i].chunkfrom > diskSlices[j].chunkfrom {
+				return false
+			} else if diskSlices[i].chunkfrom < diskSlices[j].chunkfrom {
+				return true
+			} else {
+				return diskSlices[i].chunkto > diskSlices[j].chunkto
+			}
+		})
+	}
+
+	// Now, we walk the list and find connecting pieces
+	//
+	//   slices[aabbee..] = (
+	//       (from:0,      to:16384),
+	//       (from:16384,  to:36864),
+	//       (from:36864,  to:65536),
+	//   )
+
+	for checksumStr, diskSlices := range chunkSlices {
+		if len(diskSlices) == 1 {
+			continue
+		}
+
+		newDiskSlices := make([]*diskSlice, 1)
+		newDiskSlices[0] = diskSlices[0]
+
+		for c, n := 0, 1; c < len(diskSlices) && n < len(diskSlices); n++ {
+			current := diskSlices[c]
+			next := diskSlices[n]
+
+			if current.chunkto == next.chunkfrom {
+				newDiskSlices = append(newDiskSlices, next)
+				c = n
+			}
+		}
+
+		chunkSlices[checksumStr] = newDiskSlices
+	}
+
+	return chunkSlices, nil
+}
+
+// Add adds a chunk slice to the manifest at the given from
 func (m *manifest) Add(offset int64, part *chunkSlice) {
 	m.diskMap[offset] = part
 }
 
+// Get receives a chunk slice from the manifest at the given from.
+// Note that the from must match exactly. No soft matching is performed.
 func (m *manifest) Get(offset int64) *chunkSlice {
 	return m.diskMap[offset]
 }
@@ -111,8 +223,8 @@ func (m *manifest) Size() int64 {
 	size := int64(0)
 
 	for offset, _ := range m.diskMap {
-		part := m.diskMap[offset]
-		size = maxInt64(size, offset + part.to - part.from)
+		slice := m.diskMap[offset]
+		size = maxInt64(size, offset + slice.to - slice.from)
 	}
 
 	return size

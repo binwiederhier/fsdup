@@ -54,6 +54,8 @@ func main() {
 		mapCommand(args)
 	case "export":
 		exportCommand(args)
+	case "import":
+		importCommand(args)
 	case "print":
 		printCommand(args)
 	case "stat":
@@ -74,8 +76,9 @@ func usage() {
 	fmt.Println("")
 	fmt.Println("Commands:")
 	fmt.Println("  index [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
-	fmt.Println("  map [-store STORE] [-cache CACHE] MANIFEST OUTFILE")
+	fmt.Println("  import [-store STORE] INFILE MANIFEST")
 	fmt.Println("  export [-store STORE] MANIFEST OUTFILE")
+	fmt.Println("  map [-store STORE] [-cache CACHE] MANIFEST OUTFILE")
 	fmt.Println("  print MANIFEST")
 	fmt.Println("  stat MANIFEST...")
 
@@ -197,6 +200,34 @@ func exportCommand(args []string) {
 	}
 }
 
+func importCommand(args []string) {
+	flags := flag.NewFlagSet("import", flag.ExitOnError)
+	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
+	storeFlag := flags.String("store", "index", "Location of the chunk store")
+
+	flags.Parse(args)
+
+	if flags.NArg() < 2 {
+		usage()
+	}
+
+	if *debugFlag {
+		fsdup.Debug = *debugFlag
+	}
+
+	infile := flags.Arg(0)
+	manifest := flags.Arg(1)
+
+	store, err := createChunkStore(*storeFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
+
+	if err := fsdup.Import(manifest, store, infile); err != nil {
+		exit(2, "Cannot import file: " + string(err.Error()))
+	}
+}
+
 func printCommand(args []string) {
 	flags := flag.NewFlagSet("print", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
@@ -211,14 +242,14 @@ func printCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
-	manifest := flags.Arg(0)
+	manifestFile := flags.Arg(0)
 
-	m, err := fsdup.NewManifestFromFile(manifest)
+	manifest, err := fsdup.NewManifestFromFile(manifestFile)
 	if err != nil {
 		exit(2, "Cannot read manifest: " + string(err.Error()))
 	}
 
-	m.Print()
+	manifest.Print()
 }
 
 func statCommand(args []string) {
@@ -281,7 +312,10 @@ func createCephChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
 		return nil, errors.New("invalid syntax for ceph store type, should be ceph:FILE?pool=POOL")
 	}
 
-	return fsdup.NewCephStore(configFile, pool), nil
+	compressStr := uri.Query().Get("compress")
+	compress := compressStr == "yes" || compressStr == "true"
+
+	return fsdup.NewCephStore(configFile, pool, compress), nil
 }
 
 func convertToBytes(s string) (int64, error) {

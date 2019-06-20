@@ -68,8 +68,6 @@ type run struct {
 }
 
 const (
-	chunkSizeMaxBytes      = 32 * 1024 * 1024
-
 	// NTFS boot sector (absolute aka relative to file system start)
 	ntfsBootRecordSize              = 512
 	ntfsBootMagicOffset             = 3
@@ -396,10 +394,11 @@ func (d *ntfsChunker) readRuns(entry []byte, offset int64) []run {
 
 		fromOffset := int64(firstCluster) * int64(d.clusterSize)
 		toOffset := fromOffset + int64(clusterCount) * int64(d.clusterSize)
+		fullRun := entry[offset+ntfsAttrDataRunsHeaderOffset:offset+ntfsAttrDataRunsHeaderOffset+clusterCountLength+firstClusterLength+1]
 
-		debugf("data run offset = %d, header = 0x%x, sparse = %t, length length = 0x%x, offset length = 0x%x, " +
+		debugf("data run offset = %d, header = 0x%x, full run = %x, sparse = %t, to to = 0x%x, offset to = 0x%x, " +
 			"cluster count = %d, first cluster = %d, from offset = %d, to offset = %d\n",
-			offset, header, sparse, clusterCountLength, firstClusterLength, clusterCount, firstCluster,
+			offset, header, fullRun, sparse, clusterCountLength, firstClusterLength, clusterCount, firstCluster,
 			fromOffset, toOffset)
 
 		runs = append(runs, run{

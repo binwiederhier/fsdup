@@ -108,7 +108,7 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 }
 
 func (d *manifestImage) ReadAt(p []byte, off uint) error {
-	debugf("READ offset %d, length %d\n", off, len(p))
+	debugf("READ offset %d, len %d\n", off, len(p))
 
 	if err := d.syncSlices(int64(off), int64(off) + int64(len(p))); err != nil {
 		return err
@@ -126,7 +126,7 @@ func (d *manifestImage) ReadAt(p []byte, off uint) error {
 
 func (d *manifestImage) WriteAt(p []byte, off uint) error {
 	if d.target == nil {
-		debugf("Failed to write to device at offset %d, length %d: Cannot write to read only device\n", off, len(p))
+		debugf("Failed to write to device at offset %d, to %d: Cannot write to read only device\n", off, len(p))
 		return errors.New("cannot write to read only device")
 	}
 
@@ -134,7 +134,7 @@ func (d *manifestImage) WriteAt(p []byte, off uint) error {
 		return err
 	}
 
-	debugf("WRITE offset:%d len:%d\n", off, len(p))
+	debugf("WRITE offset %d, len %d\n", off, len(p))
 
 	written, err := d.target.WriteAt(p, int64(off))
 	if err != nil {
