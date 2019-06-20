@@ -72,7 +72,7 @@ func NewManifestFromFile(file string) (*manifest, error) {
 	return manifest, nil
 }
 
-// Breakpoints returns a sorted list of breakpoints, useful for sequential disk traversal
+// Breakpoints returns a sorted list of slice offsets, useful for sequential disk traversal
 func (m *manifest) Offsets() []int64 {
 	offsets := make([]int64, 0, len(m.diskMap))
 	for offset, _ := range m.diskMap {
@@ -110,7 +110,6 @@ func (m *manifest) Chunks() map[string]*chunk {
 
 // ChunkSlices returns a map of chunks and its sections on disk.
 // The key is a hex representation of the chunk checksum.
-
 func (m *manifest) ChunkSlices() (map[string][]*diskSlice, error) {
 	// Create the better manifest
 	manifest := make(map[int64]*diskSlice, 0)
@@ -208,9 +207,24 @@ func (m *manifest) ChunkSlices() (map[string][]*diskSlice, error) {
 	return chunkSlices, nil
 }
 
+// ChecksumsByDiskOffset orders the given list by first slice disk offset. This
+// is useful to read all chunks as sequential as possible.
+func (m *manifest) ChecksumsByDiskOffset(chunkSlices map[string][]*diskSlice) []string {
+	checksumStrs := make([]string, 0)
+	for checksumStr, _ := range chunkSlices {
+		checksumStrs = append(checksumStrs, checksumStr)
+	}
+
+	sort.Slice(checksumStrs, func(i, j int) bool {
+		return chunkSlices[checksumStrs[i]][0].diskfrom < chunkSlices[checksumStrs[j]][0].diskfrom
+	})
+
+	return checksumStrs
+}
+
 // Add adds a chunk slice to the manifest at the given from
-func (m *manifest) Add(offset int64, part *chunkSlice) {
-	m.diskMap[offset] = part
+func (m *manifest) Add(offset int64, slice *chunkSlice) {
+	m.diskMap[offset] = slice
 }
 
 // Get receives a chunk slice from the manifest at the given from.
@@ -272,12 +286,12 @@ func (m *manifest) WriteToFile(file string) error {
 	return nil
 }
 
-func (m *manifest) Print() {
+func (m *manifest) PrintDisk() {
 	for i, offset := range m.Offsets() {
 		slice := m.diskMap[offset]
 
 		if slice.checksum == nil {
-			fmt.Printf("idx %010d diskoff %013d - %013d len %-13d sparse     -\n",
+			fmt.Printf("idx %-10d diskoff %13d - %13d len %-13d sparse     -\n",
 				i, offset, offset + slice.to - slice.from, slice.to - slice.from)
 		} else {
 			kind := "unknown"
@@ -287,8 +301,26 @@ func (m *manifest) Print() {
 				kind = "file"
 			}
 
-			fmt.Printf("idx %010d diskoff %013d - %013d len %-13d %-10s chunk %64x chunkoff %10d - %10d\n",
+			fmt.Printf("idx %-10d diskoff %13d - %13d len %-13d %-10s chunk %64x chunkoff %10d - %10d\n",
 				i, offset, offset + slice.to - slice.from, slice.to - slice.from, kind, slice.checksum, slice.from, slice.to)
 		}
 	}
+}
+
+
+func (m *manifest) PrintChunks() error {
+	chunkSlices, err := m.ChunkSlices()
+	if err != nil {
+		return err
+	}
+
+	for _, checksumStr := range m.ChecksumsByDiskOffset(chunkSlices) {
+		slices := chunkSlices[checksumStr]
+		for i, slice := range slices {
+			fmt.Printf("chunk %s idx %-5d diskoff %13d - %13d len %-13d chunkoff %10d - %10d\n",
+				checksumStr, i, slice.diskfrom, slice.diskto, slice.length, slice.chunkfrom, slice.chunkto)
+		}
+	}
+
+	return nil
 }

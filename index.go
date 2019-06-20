@@ -61,7 +61,7 @@ func Index(inputFile string, store ChunkStore, manifestFile string, offset int64
 
 	if Debug {
 		debugf("Manifest:\n")
-		manifest.Print()
+		manifest.PrintDisk()
 	}
 
 	if err := manifest.WriteToFile(manifestFile); err != nil {

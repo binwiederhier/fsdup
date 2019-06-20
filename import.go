@@ -8,8 +8,6 @@ import (
 )
 
 func Import(manifestFile string, store ChunkStore, inputFile string) error {
-	//return errors.New("if a chunk appears multiple times, this logic does not work")
-
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err
@@ -37,7 +35,9 @@ func Import(manifestFile string, store ChunkStore, inputFile string) error {
 	skipped := int64(0)
 	buffer := make([]byte, chunkSizeMaxBytes)
 
-	for checksumStr, slices := range chunkSlices {
+	for _, checksumStr := range manifest.ChecksumsByDiskOffset(chunkSlices) {
+		slices := chunkSlices[checksumStr]
+
 		statusf("Importing chunk %d (%d skipped, %d total) ...", imported + 1, skipped, len(chunkSlices))
 		debugf("Importing chunk %s (%d slices) ...\n", checksumStr, len(slices))
 
@@ -56,7 +56,7 @@ func Import(manifestFile string, store ChunkStore, inputFile string) error {
 		chunkSize := int64(0)
 
 		for i, slice := range slices {
-			debugf("idx %-3d diskoff %013d - %013d len %-10d chunkoff %013d - %013d\n",
+			debugf("idx %-5d diskoff %13d - %13d len %-10d chunkoff %13d - %13d\n",
 				i, slice.diskfrom, slice.diskto, slice.length, slice.chunkfrom, slice.chunkto)
 
 			read, err := in.ReadAt(buffer[slice.chunkfrom:slice.chunkto], slice.diskfrom)

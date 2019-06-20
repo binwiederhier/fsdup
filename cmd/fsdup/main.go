@@ -79,7 +79,7 @@ func usage() {
 	fmt.Println("  import [-store STORE] INFILE MANIFEST")
 	fmt.Println("  export [-store STORE] MANIFEST OUTFILE")
 	fmt.Println("  map [-store STORE] [-cache CACHE] MANIFEST OUTFILE")
-	fmt.Println("  print MANIFEST")
+	fmt.Println("  print [disk|chunks] MANIFEST")
 	fmt.Println("  stat MANIFEST...")
 
 	os.Exit(1)
@@ -242,14 +242,32 @@ func printCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
-	manifestFile := flags.Arg(0)
+	var what string
+	var manifestFile string
+
+	if flags.NArg() == 1 {
+		what = "disk"
+		manifestFile = flags.Arg(0)
+	} else {
+		what = flags.Arg(0)
+		manifestFile = flags.Arg(1)
+	}
 
 	manifest, err := fsdup.NewManifestFromFile(manifestFile)
 	if err != nil {
 		exit(2, "Cannot read manifest: " + string(err.Error()))
 	}
 
-	manifest.Print()
+	switch what {
+	case "disk":
+		manifest.PrintDisk()
+	case "chunks":
+		if err := manifest.PrintChunks(); err != nil {
+			exit(2, "Cannot print chunks: " + string(err.Error()))
+		}
+	default:
+		usage()
+	}
 }
 
 func statCommand(args []string) {
