@@ -3,7 +3,7 @@ module heckel.io/fsdup
 go 1.12
 
 require (
-	github.com/binwiederhier/buse-go v0.0.0-20190604150725-ed7b3191d407
+	github.com/binwiederhier/buse-go v0.0.0-20190620221802-88a95178f4c4
 	github.com/ceph/go-ceph v0.0.0-20181217221554-e32f9f0f2e94
 	github.com/golang/protobuf v1.3.1
 	golang.org/x/crypto v0.0.0-20190530122614-20be4c3c3ed5
