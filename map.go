@@ -20,7 +20,6 @@ type manifestImage struct {
 	store      ChunkStore
 	target     *os.File
 	cache      ChunkStore
-	offsets    []int64
 	chunks     map[string]*chunk
 	written    map[int64]bool
 	sliceCount map[string]int64
@@ -99,7 +98,6 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 		store:      store,
 		target:     target,
 		cache:      cache,
-		offsets:    manifest.Offsets(), // cache !
 		chunks:     manifest.Chunks(),  // cache !
 		written:    make(map[int64]bool, 0),
 		sliceCount: sliceCount,
@@ -111,7 +109,7 @@ func (d *manifestImage) ReadAt(p []byte, off uint) error {
 	debugf("READ offset %d, len %d\n", off, len(p))
 
 	if err := d.syncSlices(int64(off), int64(off) + int64(len(p))); err != nil {
-		return err
+		return d.wrapError(err)
 	}
 
 	read, err := d.target.ReadAt(p, int64(off))
@@ -147,60 +145,34 @@ func (d *manifestImage) WriteAt(p []byte, off uint) error {
 }
 
 func (d *manifestImage) syncSlices(from int64, to int64) error {
-	// Find first chunk
-	// FIXME Linear search is inefficient; use binary search instead, or something better.
-	fromIndex := int64(-1)
-	fromOffset := int64(-1)
-	toIndex := int64(-1)
-
-	for i := int64(0); i < int64(len(d.offsets)); i++ {
-		slice := d.manifest.Get(d.offsets[i])
-		sliceStart := d.offsets[i]
-		sliceEnd := sliceStart + slice.chunkto - slice.chunkfrom
-
-		if sliceStart <= from && from < sliceEnd {
-			fromIndex = i
-			fromOffset = sliceStart
-		}
-
-		if sliceStart <= to && to <= sliceEnd { // FIXME: to <= ??
-			toIndex = i
-			break
-		}
+	slices, err := d.manifest.SlicesBetween(from, to)
+	if err != nil {
+		return d.wrapError(err)
 	}
 
-	debugf("from index = %d, to index = %d\n", fromIndex, toIndex)
-	if fromIndex == -1 || toIndex == -1 {
-		return errors.New("out of range read")
-	}
-
-	offset := fromOffset
-	for i := fromIndex; i <= toIndex; i++ {
-		slice := d.manifest.Get(d.offsets[i])
-		if err := d.syncSlice(offset, slice); err != nil {
+	for _, slice := range slices {
+		if err := d.syncSlice(slice); err != nil {
 			return err
 		}
-
-		offset += slice.chunkto - slice.chunkfrom
 	}
 
 	return nil
 }
 
-func (d *manifestImage) syncSlice(offset int64, slice *chunkSlice) error {
-	if _, ok := d.written[offset]; ok {
+func (d *manifestImage) syncSlice(slice *chunkSlice) error {
+	if _, ok := d.written[slice.diskfrom]; ok {
 		return nil
 	}
 
 	if slice.checksum == nil {
-		d.written[offset] = true
+		d.written[slice.diskfrom] = true
 		return nil
 	}
 
 	buffer := d.buffer
 	length := slice.chunkto - slice.chunkfrom
 	debugf("Syncing diskoff %d - %d (len %d) -> checksum %x, %d to %d\n",
-		offset, offset + length, length, slice.checksum, slice.chunkfrom, slice.chunkto)
+		slice.diskfrom, slice.diskto, length, slice.checksum, slice.chunkfrom, slice.chunkto)
 
 	checksumStr := fmt.Sprintf("%x", slice.checksum)
 
@@ -228,13 +200,13 @@ func (d *manifestImage) syncSlice(offset int64, slice *chunkSlice) error {
 		return errors.New(fmt.Sprintf("cannot read entire slice, read only %d bytes", read))
 	}
 
-	_, err = d.target.WriteAt(buffer[:length], offset)
+	_, err = d.target.WriteAt(buffer[:length], slice.diskfrom)
 	if err != nil {
 		return err
 	}
 
 	// Accounting
-	d.written[offset] = true
+	d.written[slice.diskfrom] = true
 	d.sliceCount[checksumStr]--
 
 	// Remove from cache if it will never be requested again
@@ -276,4 +248,9 @@ func findNextNbdDevice() (string, error) {
 	}
 
 	return "", errors.New("cannot find free nbd device, driver not loaded?")
+}
+
+func (d *manifestImage) wrapError(err error) error {
+	fmt.Printf("Error: %s\n", err.Error())
+	return err
 }

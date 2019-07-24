@@ -1,6 +1,7 @@
 package fsdup
 
 import (
+	"errors"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"heckel.io/fsdup/pb"
@@ -19,6 +20,7 @@ const (
 type manifest struct {
 	diskMap map[int64]*chunkSlice
 	size    int64
+	offsets []int64 // cache, don't forget to update for all write operations!
 }
 
 type chunkSlice struct {
@@ -71,6 +73,10 @@ func NewManifestFromFile(file string) (*manifest, error) {
 
 // Breakpoints returns a sorted list of slice offsets, useful for sequential disk traversal
 func (m *manifest) Offsets() []int64 {
+	if m.offsets != nil {
+		return m.offsets
+	}
+
 	offsets := make([]int64, 0, len(m.diskMap))
 	for offset, _ := range m.diskMap {
 		offsets = append(offsets, offset)
@@ -80,6 +86,7 @@ func (m *manifest) Offsets() []int64 {
 		return offsets[i] < offsets[j]
 	})
 
+	m.offsets = offsets
 	return offsets
 }
 
@@ -105,9 +112,34 @@ func (m *manifest) Chunks() map[string]*chunk {
 	return chunks
 }
 
-// ChunkSlices returns a map of chunks and its sections on disk.
+// SlicesBetween efficiently finds the slices storing the given disk offset
+func (m *manifest) SlicesBetween(from int64, to int64) ([]*chunkSlice, error) {
+	offsets := m.Offsets()
+
+	fromIndex := sort.Search(len(offsets), func(i int) bool {
+		return i+1 == len(offsets) || offsets[i+1] > from
+	})
+
+	toIndex := sort.Search(len(offsets), func(i int) bool {
+		return i+1 == len(offsets) || offsets[i+1] > to
+	})
+
+	if fromIndex == len(offsets) || toIndex == len(offsets) {
+		return nil, errors.New("cannot find slice at given offset")
+	}
+
+	slices := make([]*chunkSlice, 0)
+
+	for i := fromIndex; i <= toIndex; i++ {
+		slices = append(slices, m.diskMap[offsets[i]])
+	}
+
+	return slices, nil
+}
+
+// Slices returns a map of chunks and its sections on disk.
 // The key is a hex representation of the chunk checksum.
-func (m *manifest) ChunkSlices() (map[string][]*chunkSlice, error) {
+func (m *manifest) Slices() (map[string][]*chunkSlice, error) {
 	// First, we'll sort all slices into a map grouped by chunk checksum. This
 	// produces a map with potentially overlapping slices:
 	//
@@ -209,6 +241,7 @@ func (m *manifest) ChecksumsByDiskOffset(chunkSlices map[string][]*chunkSlice) [
 // Add adds a chunk slice to the manifest at the given from
 func (m *manifest) Add(slice *chunkSlice) {
 	m.diskMap[slice.diskfrom] = slice
+	m.resetCaches()
 }
 
 // Get receives a chunk slice from the manifest at the given from.
@@ -232,12 +265,16 @@ func (m *manifest) Merge(other *manifest) {
 	for offset, part := range other.diskMap {
 		m.diskMap[offset] = part
 	}
+
+	m.resetCaches()
 }
 
 func (m *manifest) MergeAtOffset(offset int64, other *manifest) {
 	for sliceOffset, part := range other.diskMap {
 		m.diskMap[offset+sliceOffset] = part
 	}
+
+	m.resetCaches()
 }
 
 func (m *manifest) WriteToFile(file string) error {
@@ -291,9 +328,8 @@ func (m *manifest) PrintDisk() {
 	}
 }
 
-
 func (m *manifest) PrintChunks() error {
-	chunkSlices, err := m.ChunkSlices()
+	chunkSlices, err := m.Slices()
 	if err != nil {
 		return err
 	}
@@ -307,4 +343,8 @@ func (m *manifest) PrintChunks() error {
 	}
 
 	return nil
+}
+
+func (m *manifest) resetCaches() {
+	m.offsets = nil
 }
