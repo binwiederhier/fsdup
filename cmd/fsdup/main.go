@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/ncw/swift"
 	"heckel.io/fsdup"
 	"net/url"
 	"os"
@@ -293,7 +294,7 @@ func statCommand(args []string) {
 }
 
 func createChunkStore(spec string) (fsdup.ChunkStore, error) {
-	if regexp.MustCompile(`^ceph:`).MatchString(spec) {
+	if regexp.MustCompile(`^(ceph|swift):`).MatchString(spec) {
 		uri, err := url.ParseRequestURI(spec)
 		if err != nil {
 			return nil, err
@@ -301,6 +302,8 @@ func createChunkStore(spec string) (fsdup.ChunkStore, error) {
 
 		if uri.Scheme == "ceph" {
 			return createCephChunkStore(uri)
+		} else if uri.Scheme == "swift" {
+			return createSwiftChunkStore(uri)
 		}
 
 		return nil, errors.New("store type not supported")
@@ -334,6 +337,24 @@ func createCephChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
 	compress := compressStr == "yes" || compressStr == "true"
 
 	return fsdup.NewCephStore(configFile, pool, compress), nil
+}
+
+func createSwiftChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
+	connection := &swift.Connection{}
+
+	container := uri.Query().Get("container")
+	if container == "" {
+		return nil, errors.New("invalid syntax for swift store type, container parameter is required")
+	}
+
+	err := connection.ApplyEnvironment()
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO provide way to override environment variables
+
+	return fsdup.NewSwiftStore(connection, container), nil
 }
 
 func convertToBytes(s string) (int64, error) {
