@@ -23,17 +23,19 @@ type mbrDiskChunker struct {
 	start    int64
 	size     int64
 	exact    bool
+	noFile   bool
 	minSize  int64
 	manifest *manifest
 }
 
-func NewMbrDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size int64, exact bool, minSize int64) *mbrDiskChunker {
+func NewMbrDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size int64, exact bool, noFile bool, minSize int64) *mbrDiskChunker {
 	return &mbrDiskChunker{
 		reader:   reader,
 		store:    store,
 		start:    offset,
 		size:     size,
 		exact:    exact,
+		noFile:   noFile,
 		minSize:  minSize,
 		manifest: NewManifest(),
 	}
@@ -79,7 +81,7 @@ func (d *mbrDiskChunker) dedupNtfsPartitions() error {
 		}
 
 		if partitionType == typeNtfs {
-			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.minSize)
+			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.noFile, d.minSize)
 			manifest, err := ntfs.Dedup()
 			if err != nil {
 				return err

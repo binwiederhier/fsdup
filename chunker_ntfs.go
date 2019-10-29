@@ -35,6 +35,7 @@ type ntfsChunker struct {
 	start             int64
 	sizeInBytes       int64
 	exact             bool
+	noFile            bool
 	minSize           int64
 	totalSectors      int64
 	sectorSize        int64
@@ -130,12 +131,13 @@ const (
 
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
-func NewNtfsChunker(reader io.ReaderAt, store ChunkStore, offset int64, exact bool, minSize int64) *ntfsChunker {
+func NewNtfsChunker(reader io.ReaderAt, store ChunkStore, offset int64, exact bool, noFile bool, minSize int64) *ntfsChunker {
 	return &ntfsChunker{
 		reader:  reader,
 		store:   store,
 		start:   offset,
 		exact:   exact,
+		noFile:  noFile,
 		minSize: minSize,
 		chunk:   NewChunk(),
 		buffer:  make([]byte, chunkSizeMaxBytes),
@@ -178,8 +180,10 @@ func (d *ntfsChunker) Dedup() (*manifest, error) {
 	}
 
 	// Find and checksum FILE entries
-	if err := d.dedupFiles(mft); err != nil {
-		return nil, err
+	if !d.noFile {
+		if err := d.dedupFiles(mft); err != nil {
+			return nil, err
+		}
 	}
 
 	// Find unused/empty sections based on the $Bitmap

@@ -76,7 +76,7 @@ func usage() {
 	fmt.Println("  fsdup [-quiet] [-debug] COMMAND [options ...]")
 	fmt.Println("")
 	fmt.Println("Commands:")
-	fmt.Println("  index [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] INFILE MANIFEST")
+	fmt.Println("  index [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] [-nofile] INFILE MANIFEST")
 	fmt.Println("  import [-store STORE] INFILE MANIFEST")
 	fmt.Println("  export [-store STORE] MANIFEST OUTFILE")
 	fmt.Println("  map [-store STORE] [-cache CACHE] MANIFEST OUTFILE")
@@ -104,6 +104,7 @@ func indexCommand(args []string) {
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
 	offsetFlag := flags.Int64("offset", 0, "Start reading file at given offset")
 	exactFlag := flags.Bool("exact", false, "Ignore the NTFS bitmap, i.e. include unused blocks")
+	noFileFlag := flags.Bool("nofile", false, "Don't do NTFS FILE deduping, just do gaps and unused space")
 	minSizeFlag := flags.String("minsize", fmt.Sprintf("%d", fsdup.DefaultDedupFileSizeMinBytes), "Minimum file size to consider for deduping")
 
 	flags.Parse(args)
@@ -118,6 +119,7 @@ func indexCommand(args []string) {
 
 	offset := *offsetFlag
 	exact := *exactFlag
+	noFile := *noFileFlag
 	minSize, err := convertToBytes(*minSizeFlag)
 	if err != nil {
 		exit(2, "Invalid min size value: " + err.Error())
@@ -137,7 +139,7 @@ func indexCommand(args []string) {
 	}
 
 	// Go index!
-	if err := fsdup.Index(file, store, manifest, offset, exact, minSize); err != nil {
+	if err := fsdup.Index(file, store, manifest, offset, exact, noFile, minSize); err != nil {
 		exit(2, "Cannot index file: " + string(err.Error()))
 	}
 }

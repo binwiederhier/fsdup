@@ -1,6 +1,7 @@
 package fsdup
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/ncw/swift"
@@ -44,17 +45,25 @@ func (idx *swiftChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64)
 
 	checksumStr := fmt.Sprintf("%x", checksum)
 
-	bytes, err := idx.connection.ObjectGetBytes(idx.container, checksumStr)
+	requestHeaders := make(swift.Headers)
+	requestHeaders["Range"] = fmt.Sprintf("bytes=%d-%d", offset, len(buffer)-1)
+
+	var responseBuffer bytes.Buffer
+	_, err := idx.connection.ObjectGet(idx.container, checksumStr, &responseBuffer, false, requestHeaders)
 	if err != nil {
 		return 0, err
 	}
 
-	if len(bytes) != len(buffer) {
-		return 0, errors.New("cannot read full object")
+	if responseBuffer.Len() != len(buffer) {
+		return 0, errors.New(fmt.Sprintf("cannot read %d chunk bytes, response was %s bytes instead", len(buffer), responseBuffer.Len()))
 	}
 
-	copy(buffer, bytes) // TODO this is awful!
-	return len(bytes), nil
+	copied := copy(buffer, responseBuffer.Bytes())
+	if copied != len(buffer) {
+		return 0, errors.New(fmt.Sprintf("cannot copy %d chunk bytes, only %s bytes copied instead", len(buffer), copied))
+	}
+
+	return len(buffer), nil
 }
 
 func (idx *swiftChunkStore) Write(checksum []byte, buffer []byte) error {

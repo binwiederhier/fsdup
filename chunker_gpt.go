@@ -26,17 +26,19 @@ type gptDiskChunker struct {
 	start    int64
 	size     int64
 	exact    bool
+	noFile   bool
 	minSize  int64
 	manifest *manifest
 }
 
-func NewGptDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size int64, exact bool, minSize int64) *gptDiskChunker {
+func NewGptDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size int64, exact bool, noFile bool, minSize int64) *gptDiskChunker {
 	return &gptDiskChunker{
 		reader:   reader,
 		store:    store,
 		start:    offset,
 		size:     size,
 		exact:    exact,
+		noFile:   noFile,
 		minSize:  minSize,
 		manifest: NewManifest(),
 	}
@@ -95,7 +97,7 @@ func (d *gptDiskChunker) dedupNtfsPartitions() error {
 
 		if partitionType == typeNtfs {
 			debugf("NTFS partition found at offset %d\n", partitionOffset)
-			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.minSize)
+			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.noFile, d.minSize)
 			manifest, err := ntfs.Dedup()
 			if err != nil {
 				return err
