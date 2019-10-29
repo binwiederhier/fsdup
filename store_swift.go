@@ -11,7 +11,6 @@ type swiftChunkStore struct {
 	connection *swift.Connection
 	container  string
 	chunkMap   map[string]bool
-	buffer     []byte
 }
 
 func NewSwiftStore(connection *swift.Connection, container string) *swiftChunkStore {
@@ -19,7 +18,6 @@ func NewSwiftStore(connection *swift.Connection, container string) *swiftChunkSt
 		connection: connection,
 		container:  container,
 		chunkMap:   make(map[string]bool, 0),
-		buffer:     make([]byte, chunkSizeMaxBytes),
 	}
 }
 
