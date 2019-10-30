@@ -18,30 +18,32 @@ const (
 )
 
 type mbrDiskChunker struct {
-	reader       io.ReaderAt
-	store        ChunkStore
-	start        int64
-	size         int64
-	exact        bool
-	noFile       bool
-	minSize      int64
-	chunkMaxSize int64
-	manifest     *manifest
+	reader           io.ReaderAt
+	store            ChunkStore
+	start            int64
+	size             int64
+	exact            bool
+	noFile           bool
+	minSize          int64
+	chunkMaxSize     int64
+	writeConcurrency int64
+	manifest         *manifest
 }
 
 func NewMbrDiskChunker(reader io.ReaderAt, store ChunkStore, offset int64, size int64, exact bool, noFile bool,
-	minSize int64, chunkMaxSize int64) *mbrDiskChunker {
+	minSize int64, chunkMaxSize int64, writeConcurrency int64) *mbrDiskChunker {
 
 	return &mbrDiskChunker{
-		reader:       reader,
-		store:        store,
-		start:        offset,
-		size:         size,
-		exact:        exact,
-		noFile:       noFile,
-		minSize:      minSize,
-		chunkMaxSize: chunkMaxSize,
-		manifest:     NewManifest(chunkMaxSize),
+		reader:           reader,
+		store:            store,
+		start:            offset,
+		size:             size,
+		exact:            exact,
+		noFile:           noFile,
+		minSize:          minSize,
+		chunkMaxSize:     chunkMaxSize,
+		writeConcurrency: writeConcurrency,
+		manifest:         NewManifest(chunkMaxSize),
 	}
 }
 
@@ -85,7 +87,7 @@ func (d *mbrDiskChunker) dedupNtfsPartitions() error {
 		}
 
 		if partitionType == typeNtfs {
-			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.noFile, d.minSize, d.chunkMaxSize)
+			ntfs := NewNtfsChunker(d.reader, d.store, partitionOffset, d.exact, d.noFile, d.minSize, d.chunkMaxSize, d.writeConcurrency)
 			manifest, err := ntfs.Dedup()
 			if err != nil {
 				return err
@@ -99,7 +101,7 @@ func (d *mbrDiskChunker) dedupNtfsPartitions() error {
 }
 
 func (d *mbrDiskChunker) dedupRest() error {
-	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.size, d.chunkMaxSize, d.manifest)
+	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.size, d.chunkMaxSize, d.writeConcurrency, d.manifest)
 
 	gapManifest, err := chunker.Dedup()
 	if err != nil {

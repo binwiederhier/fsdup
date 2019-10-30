@@ -31,13 +31,14 @@ import (
 //   chunk part: pointer to one or many parts of a chunk; a run's data can be spread across multiple chunks
 //
 type ntfsChunker struct {
-	reader            io.ReaderAt
-	start             int64
-	sizeInBytes       int64
-	exact             bool
-	noFile            bool
-	minSize           int64
-	chunkMaxSize      int64
+	reader           io.ReaderAt
+	start            int64
+	sizeInBytes      int64
+	exact            bool
+	noFile           bool
+	minSize          int64
+	chunkMaxSize     int64
+	writeConcurrency int64
 
 	totalSectors      int64
 	sectorSize        int64
@@ -48,7 +49,7 @@ type ntfsChunker struct {
 	chunk             *chunk
 
 	// Output manifest
-	out               *manifest
+	out *manifest
 }
 
 type entry struct {
@@ -134,19 +135,20 @@ const (
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
 func NewNtfsChunker(reader io.ReaderAt, store ChunkStore, offset int64, exact bool, noFile bool,
-	minSize int64, chunkMaxSize int64) *ntfsChunker {
+	minSize int64, chunkMaxSize int64, writeConcurrency int64) *ntfsChunker {
 
 	return &ntfsChunker{
-		reader:       reader,
-		store:        store,
-		start:        offset,
-		exact:        exact,
-		noFile:       noFile,
-		minSize:      minSize,
-		chunkMaxSize: chunkMaxSize,
-		chunk:        NewChunk(chunkMaxSize),
-		buffer:       make([]byte, chunkMaxSize),
-		out:          NewManifest(chunkMaxSize),
+		reader:           reader,
+		store:            store,
+		start:            offset,
+		exact:            exact,
+		noFile:           noFile,
+		minSize:          minSize,
+		chunkMaxSize:     chunkMaxSize,
+		writeConcurrency: writeConcurrency,
+		chunk:            NewChunk(chunkMaxSize),
+		buffer:           make([]byte, chunkMaxSize),
+		out:              NewManifest(chunkMaxSize),
 	}
 }
 
@@ -652,7 +654,7 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 }
 
 func (d *ntfsChunker) dedupGaps() error {
-	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.sizeInBytes, d.chunkMaxSize, d.out)
+	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.sizeInBytes, d.chunkMaxSize, d.writeConcurrency, d.out)
 
 	gapManifest, err := chunker.Dedup()
 	if err != nil {

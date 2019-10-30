@@ -5,19 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ncw/swift"
+	"sync"
 )
 
 type swiftChunkStore struct {
 	connection *swift.Connection
 	container  string
-	chunkMap   map[string]bool
+	chunkMap   sync.Map
 }
 
 func NewSwiftStore(connection *swift.Connection, container string) *swiftChunkStore {
 	return &swiftChunkStore{
 		connection: connection,
 		container:  container,
-		chunkMap:   make(map[string]bool, 0),
+		chunkMap:   sync.Map{},
 	}
 }
 
@@ -28,11 +29,15 @@ func (idx *swiftChunkStore) Stat(checksum []byte) error {
 
 	checksumStr := fmt.Sprintf("%x", checksum)
 
-	if _, ok := idx.chunkMap[checksumStr]; ok {
+	if _, ok := idx.chunkMap.Load(checksumStr); ok {
 		return nil
 	}
 
 	_, _, err := idx.connection.Object(idx.container, checksumStr)
+	if err == nil {
+		idx.chunkMap.Store(checksumStr, true)
+	}
+
 	return err
 }
 
@@ -69,14 +74,19 @@ func (idx *swiftChunkStore) Write(checksum []byte, buffer []byte) error {
 		return err
 	}
 
+	if err := idx.Stat(checksum); err == nil {
+		return nil // Exists!
+	}
+
 	checksumStr := fmt.Sprintf("%x", checksum)
 
-	if _, ok := idx.chunkMap[checksumStr]; !ok {
+	if _, ok := idx.chunkMap.Load(checksumStr); !ok {
+
 		if err := idx.connection.ObjectPutBytes(idx.container, checksumStr, buffer, "application/x-fsdup-chunk"); err != nil {
 			return err
 		}
 
-		idx.chunkMap[checksumStr] = true
+		idx.chunkMap.Store(checksumStr, true)
 	}
 
 	return nil
@@ -93,7 +103,7 @@ func (idx *swiftChunkStore) Remove(checksum []byte) error {
 		return err
 	}
 
-	delete(idx.chunkMap, checksumStr)
+	idx.chunkMap.Delete(checksumStr)
 
 	return nil
 }

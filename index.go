@@ -23,7 +23,7 @@ const (
 )
 
 func Index(inputFile string, store ChunkStore, manifestFile string, offset int64, exact bool,
-	noFile bool, minSize int64, chunkMaxSize int64) error {
+	noFile bool, minSize int64, chunkMaxSize int64, writeConcurrency int64) error {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return err
@@ -46,13 +46,13 @@ func Index(inputFile string, store ChunkStore, manifestFile string, offset int64
 
 	switch fileType {
 	case typeNtfs:
-		chunker = NewNtfsChunker(file, store, offset, exact, noFile, minSize, chunkMaxSize)
+		chunker = NewNtfsChunker(file, store, offset, exact, noFile, minSize, chunkMaxSize, writeConcurrency)
 	case typeMbrDisk:
-		chunker = NewMbrDiskChunker(file, store, offset, size, exact, noFile, minSize, chunkMaxSize)
+		chunker = NewMbrDiskChunker(file, store, offset, size, exact, noFile, minSize, chunkMaxSize, writeConcurrency)
 	case typeGptDisk:
-		chunker = NewGptDiskChunker(file, store, offset, size, exact, noFile, minSize, chunkMaxSize)
+		chunker = NewGptDiskChunker(file, store, offset, size, exact, noFile, minSize, chunkMaxSize, writeConcurrency)
 	default:
-		chunker = NewFixedChunker(file, store, offset, size, chunkMaxSize)
+		chunker = NewFixedChunker(file, store, offset, size, chunkMaxSize, writeConcurrency)
 	}
 
 	manifest, err := chunker.Dedup()

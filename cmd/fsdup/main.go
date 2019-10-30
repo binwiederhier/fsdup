@@ -107,6 +107,7 @@ func indexCommand(args []string) {
 	noFileFlag := flags.Bool("nofile", false, "Don't do NTFS FILE deduping, just do gaps and unused space")
 	minSizeFlag := flags.String("minsize", fmt.Sprintf("%d", fsdup.DefaultDedupFileSizeMinBytes), "Minimum file size to consider for deduping")
 	maxChunkSizeFlag := flags.String("maxchunksize", fmt.Sprintf("%d", fsdup.DefaultChunkSizeMaxBytes), "Maximum size per chunk")
+	writeConcurrencyFlag := flags.Int("writeconcurrency", 20, "Number of concurrent write requests against the store")
 
 	flags.Parse(args)
 
@@ -130,6 +131,7 @@ func indexCommand(args []string) {
 	if err != nil {
 		exit(2, "Invalid max chunk size value: " + err.Error())
 	}
+	writeConcurrency := int64(*writeConcurrencyFlag)
 
 	file := flags.Arg(0)
 	manifest := flags.Arg(1)
@@ -145,7 +147,7 @@ func indexCommand(args []string) {
 	}
 
 	// Go index!
-	if err := fsdup.Index(file, store, manifest, offset, exact, noFile, minSize, chunkMaxSize); err != nil {
+	if err := fsdup.Index(file, store, manifest, offset, exact, noFile, minSize, chunkMaxSize, writeConcurrency); err != nil {
 		exit(2, "Cannot index file: " + string(err.Error()))
 	}
 }
