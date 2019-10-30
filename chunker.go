@@ -11,7 +11,7 @@ const (
 	// Max size for any chunk produced by any of the chunkers. Note that lowering this
 	// probably has terrible consequences for existing manifests, because the buffers all use this
 	// value. Splitting this value and the buffer size would be a way to solve this.
-	chunkSizeMaxBytes             = 32 * 1024 * 1024
+	DefaultChunkSizeMaxBytes = 32 * 1024 * 1024
 )
 
 type Chunker interface {
@@ -24,10 +24,10 @@ type chunk struct {
 	checksum []byte
 }
 
-func NewChunk() *chunk {
+func NewChunk(maxSize int64) *chunk {
 	return &chunk{
 		size: 0,
-		data: make([]byte, chunkSizeMaxBytes),
+		data: make([]byte, maxSize),
 		checksum: nil,
 	}
 }

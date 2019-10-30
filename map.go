@@ -101,7 +101,7 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 		chunks:     manifest.Chunks(),  // cache !
 		written:    make(map[int64]bool, 0),
 		sliceCount: sliceCount,
-		buffer:     make([]byte, chunkSizeMaxBytes),
+		buffer:     make([]byte, manifest.chunkMaxSize),
 	}
 }
 

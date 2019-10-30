@@ -6,30 +6,34 @@ import (
 )
 
 type fixedChunker struct {
-	reader      io.ReaderAt
-	store       ChunkStore
-	start       int64
-	sizeInBytes int64
-	skip        *manifest
+	reader       io.ReaderAt
+	store        ChunkStore
+	start        int64
+	sizeInBytes  int64
+	chunkMaxSize int64
+	skip         *manifest
 }
 
-func NewFixedChunker(reader io.ReaderAt, index ChunkStore, offset int64, size int64) *fixedChunker {
-	skip := NewManifest()
-	return NewFixedChunkerWithSkip(reader, index, offset, size, skip)
+func NewFixedChunker(reader io.ReaderAt, index ChunkStore, offset int64, size int64, chunkMaxSize int64) *fixedChunker {
+	skip := NewManifest(chunkMaxSize)
+	return NewFixedChunkerWithSkip(reader, index, offset, size, chunkMaxSize, skip)
 }
 
-func NewFixedChunkerWithSkip(reader io.ReaderAt, store ChunkStore, offset int64, size int64, skip *manifest) *fixedChunker {
+func NewFixedChunkerWithSkip(reader io.ReaderAt, store ChunkStore, offset int64, size int64,
+	chunkMaxSize int64, skip *manifest) *fixedChunker {
+
 	return &fixedChunker{
-		reader:      reader,
-		store:       store,
-		start:       offset,
-		sizeInBytes: size,
-		skip:        skip,
+		reader:       reader,
+		store:        store,
+		start:        offset,
+		sizeInBytes:  size,
+		chunkMaxSize: chunkMaxSize,
+		skip:         skip,
 	}
 }
 
 func (d *fixedChunker) Dedup() (*manifest, error) {
-	out := NewManifest()
+	out := NewManifest(d.chunkMaxSize)
 
 	sliceOffsets := d.skip.Offsets()
 
@@ -37,8 +41,8 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 	breakpointIndex := 0
 	breakpoint := int64(0)
 
-	chunk := NewChunk()
-	buffer := make([]byte, chunkSizeMaxBytes)
+	chunk := NewChunk(d.chunkMaxSize)
+	buffer := make([]byte, d.chunkMaxSize)
 
 	statusf("Creating gap chunks ...")
 	chunkBytes := int64(0)
@@ -54,15 +58,15 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 			breakpoint = sliceOffsets[breakpointIndex]
 			bytesToBreakpoint := breakpoint - currentOffset
 
-			if bytesToBreakpoint > chunkSizeMaxBytes {
+			if bytesToBreakpoint > d.chunkMaxSize {
 				// We can fill an entire chunk, because there are enough bytes to the next breakpoint
 
-				chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.sizeInBytes)
+				chunkEndOffset := minInt64(currentOffset + d.chunkMaxSize, d.sizeInBytes)
 
 				bytesRead, err := d.reader.ReadAt(buffer, d.start + currentOffset)
 				if err != nil {
 					return nil, err
-				} else if bytesRead != chunkSizeMaxBytes {
+				} else if int64(bytesRead) != d.chunkMaxSize {
 					return nil, fmt.Errorf("cannot read all bytes from disk, %d read\n", bytesRead)
 				}
 
@@ -146,7 +150,7 @@ func (d *fixedChunker) Dedup() (*manifest, error) {
 				breakpointIndex++
 			}
 		} else {
-			chunkEndOffset := minInt64(currentOffset + chunkSizeMaxBytes, d.sizeInBytes)
+			chunkEndOffset := minInt64(currentOffset + d.chunkMaxSize, d.sizeInBytes)
 			chunkSize := chunkEndOffset - currentOffset
 
 			bytesRead, err := d.reader.ReadAt(buffer[:chunkSize], d.start + currentOffset)

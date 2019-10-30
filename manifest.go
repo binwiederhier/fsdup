@@ -18,9 +18,10 @@ const (
 )
 
 type manifest struct {
-	diskMap map[int64]*chunkSlice
-	size    int64
-	offsets []int64 // cache, don't forget to update for all write operations!
+	diskMap      map[int64]*chunkSlice
+	size         int64
+	chunkMaxSize int64
+	offsets      []int64 // cache, don't forget to update for all write operations!
 }
 
 type chunkSlice struct {
@@ -33,10 +34,12 @@ type chunkSlice struct {
 	length    int64
 }
 
-func NewManifest() *manifest {
+func NewManifest(chunkMaxSize int64) *manifest {
 	return &manifest{
 		size: 0,
+		chunkMaxSize: chunkMaxSize,
 		diskMap: make(map[int64]*chunkSlice, 0),
+		offsets: nil,
 	}
 }
 
@@ -51,7 +54,12 @@ func NewManifestFromFile(file string) (*manifest, error) {
 		return nil, err
 	}
 
-	manifest := NewManifest()
+	chunkMaxSize := int64(DefaultChunkSizeMaxBytes)
+	if pbmanifest.ChunkMaxSize != 0 {
+		chunkMaxSize = pbmanifest.ChunkMaxSize
+	}
+
+	manifest := NewManifest(chunkMaxSize)
 	offset := int64(0)
 
 	for _, slice := range pbmanifest.Slices {
@@ -282,6 +290,7 @@ func (m *manifest) WriteToFile(file string) error {
 	pbmanifest := &pb.ManifestV1{
 		Size: m.Size(),
 		Slices: make([]*pb.Slice, len(m.diskMap)),
+		ChunkMaxSize: m.chunkMaxSize,
 	}
 
 	for i, offset := range m.Offsets() {

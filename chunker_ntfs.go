@@ -37,12 +37,14 @@ type ntfsChunker struct {
 	exact             bool
 	noFile            bool
 	minSize           int64
+	chunkMaxSize      int64
+
 	totalSectors      int64
 	sectorSize        int64
 	sectorsPerCluster int64
 	clusterSize       int64
 	store             ChunkStore
-	buffer            []byte // cannot be larger than chunkSizeMaxBytes, the logic relies on it!
+	buffer            []byte // cannot be larger than DefaultChunkSizeMaxBytes, the logic relies on it!
 	chunk             *chunk
 
 	// Output manifest
@@ -131,17 +133,20 @@ const (
 
 var ErrUnexpectedMagic = errors.New("unexpected magic")
 
-func NewNtfsChunker(reader io.ReaderAt, store ChunkStore, offset int64, exact bool, noFile bool, minSize int64) *ntfsChunker {
+func NewNtfsChunker(reader io.ReaderAt, store ChunkStore, offset int64, exact bool, noFile bool,
+	minSize int64, chunkMaxSize int64) *ntfsChunker {
+
 	return &ntfsChunker{
-		reader:  reader,
-		store:   store,
-		start:   offset,
-		exact:   exact,
-		noFile:  noFile,
-		minSize: minSize,
-		chunk:   NewChunk(),
-		buffer:  make([]byte, chunkSizeMaxBytes),
-		out:     NewManifest(),
+		reader:       reader,
+		store:        store,
+		start:        offset,
+		exact:        exact,
+		noFile:       noFile,
+		minSize:      minSize,
+		chunkMaxSize: chunkMaxSize,
+		chunk:        NewChunk(chunkMaxSize),
+		buffer:       make([]byte, chunkMaxSize),
+		out:          NewManifest(chunkMaxSize),
 	}
 }
 
@@ -456,7 +461,7 @@ func (d *ntfsChunker) dedupFile(entry *entry) (int64, error) {
 
 				// Add run to chunk(s)
 				debugf("- Bytes read = %d, current chunk size = %d, chunk max = %d\n",
-					runBytesRead, d.chunk.Size(), chunkSizeMaxBytes)
+					runBytesRead, d.chunk.Size(), d.chunkMaxSize)
 
 				slices[runOffset] = &chunkSlice{
 					checksum:  nil, // fill this when chunk is finalized!
@@ -647,7 +652,7 @@ func (d *ntfsChunker) dedupUnused(mft *entry) error {
 }
 
 func (d *ntfsChunker) dedupGaps() error {
-	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.sizeInBytes, d.out)
+	chunker := NewFixedChunkerWithSkip(d.reader, d.store, d.start, d.sizeInBytes, d.chunkMaxSize, d.out)
 
 	gapManifest, err := chunker.Dedup()
 	if err != nil {

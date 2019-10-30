@@ -23,7 +23,7 @@ func NewCephStore(configFile string, pool string, compress bool) *cephChunkStore
 		pool:       pool,
 		compress:   compress,
 		chunkMap:   make(map[string]bool, 0),
-		buffer:     make([]byte, chunkSizeMaxBytes),
+		buffer:     make([]byte, 128 * 1024 * 1024), // FIXME: This is a hack, this means that only chunks <= 128M are supported!
 	}
 }
 

@@ -33,7 +33,7 @@ func Import(manifestFile string, store ChunkStore, inputFile string) error {
 
 	imported := int64(0)
 	skipped := int64(0)
-	buffer := make([]byte, chunkSizeMaxBytes)
+	buffer := make([]byte, manifest.chunkMaxSize)
 
 	for _, checksumStr := range manifest.ChecksumsByDiskOffset(chunkSlices) {
 		slices := chunkSlices[checksumStr]

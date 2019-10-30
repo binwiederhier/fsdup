@@ -106,6 +106,7 @@ func indexCommand(args []string) {
 	exactFlag := flags.Bool("exact", false, "Ignore the NTFS bitmap, i.e. include unused blocks")
 	noFileFlag := flags.Bool("nofile", false, "Don't do NTFS FILE deduping, just do gaps and unused space")
 	minSizeFlag := flags.String("minsize", fmt.Sprintf("%d", fsdup.DefaultDedupFileSizeMinBytes), "Minimum file size to consider for deduping")
+	maxChunkSizeFlag := flags.String("maxchunksize", fmt.Sprintf("%d", fsdup.DefaultChunkSizeMaxBytes), "Maximum size per chunk")
 
 	flags.Parse(args)
 
@@ -125,6 +126,11 @@ func indexCommand(args []string) {
 		exit(2, "Invalid min size value: " + err.Error())
 	}
 
+	chunkMaxSize, err := convertToBytes(*maxChunkSizeFlag)
+	if err != nil {
+		exit(2, "Invalid max chunk size value: " + err.Error())
+	}
+
 	file := flags.Arg(0)
 	manifest := flags.Arg(1)
 
@@ -139,7 +145,7 @@ func indexCommand(args []string) {
 	}
 
 	// Go index!
-	if err := fsdup.Index(file, store, manifest, offset, exact, noFile, minSize); err != nil {
+	if err := fsdup.Index(file, store, manifest, offset, exact, noFile, minSize, chunkMaxSize); err != nil {
 		exit(2, "Cannot index file: " + string(err.Error()))
 	}
 }

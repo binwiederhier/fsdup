@@ -22,7 +22,8 @@ const (
 	probeTypeBufferLength = 1024
 )
 
-func Index(inputFile string, store ChunkStore, manifestFile string, offset int64, exact bool, noFile bool, minSize int64) error {
+func Index(inputFile string, store ChunkStore, manifestFile string, offset int64, exact bool,
+	noFile bool, minSize int64, chunkMaxSize int64) error {
 	file, err := os.Open(inputFile)
 	if err != nil {
 		return err
@@ -45,13 +46,13 @@ func Index(inputFile string, store ChunkStore, manifestFile string, offset int64
 
 	switch fileType {
 	case typeNtfs:
-		chunker = NewNtfsChunker(file, store, offset, exact, noFile, minSize)
+		chunker = NewNtfsChunker(file, store, offset, exact, noFile, minSize, chunkMaxSize)
 	case typeMbrDisk:
-		chunker = NewMbrDiskChunker(file, store, offset, size, exact, noFile, minSize)
+		chunker = NewMbrDiskChunker(file, store, offset, size, exact, noFile, minSize, chunkMaxSize)
 	case typeGptDisk:
-		chunker = NewGptDiskChunker(file, store, offset, size, exact, noFile, minSize)
+		chunker = NewGptDiskChunker(file, store, offset, size, exact, noFile, minSize, chunkMaxSize)
 	default:
-		chunker = NewFixedChunker(file, store, offset, size)
+		chunker = NewFixedChunker(file, store, offset, size, chunkMaxSize)
 	}
 
 	manifest, err := chunker.Dedup()
