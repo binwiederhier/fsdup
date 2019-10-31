@@ -3,25 +3,17 @@ package fsdup
 import (
 	"errors"
 	"fmt"
-	"github.com/binwiederhier/buse-go/buse"
+	"gitlab.datto.net/pheckel/copy-on-demand/copyondemand"
 	"io/ioutil"
-	"log"
 	"os"
-	"os/signal"
 	"strings"
+	"time"
 )
-
-// Read:
-//       written? ---n---> cached? ---n---> store
-//          | y
 
 type manifestImage struct {
 	manifest   *manifest
 	store      ChunkStore
-	target     *os.File
-	cache      ChunkStore
 	chunks     map[string]*chunk
-	written    map[int64]bool
 	sliceCount map[string]int64
 	buffer     []byte
 }
@@ -52,26 +44,13 @@ func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile str
 	debugf("Creating device %s ...\n", deviceName)
 
 	image := NewManifestImage(manifest, store, cache, target)
-	device, err := buse.CreateDevice(deviceName, uint(manifest.Size()), image)
-	if err != nil {
+
+	source := &copyondemand.SyncReaderAt{Reader: image, Size: uint64(manifest.Size())}
+	backingFile := &copyondemand.SyncFile{File: target, Size: uint64(manifest.Size())}
+
+	if err := copyondemand.New(deviceName, source, backingFile, false); err != nil {
 		return err
 	}
-
-	sig := make(chan os.Signal)
-	signal.Notify(sig, os.Interrupt)
-	go func() {
-		if err := device.Connect(); err != nil {
-			debugf("Buse device stopped with error: %s", err)
-		} else {
-			log.Println("Buse device stopped gracefully.")
-		}
-	}()
-
-	<-sig
-
-	// Received SIGTERM, cleanup
-	debugf("SIGINT, disconnecting...\n")
-	device.Disconnect()
 
 	return nil
 }
@@ -96,139 +75,49 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 	return &manifestImage{
 		manifest:   manifest,
 		store:      store,
-		target:     target,
-		cache:      cache,
 		chunks:     manifest.Chunks(),  // cache !
-		written:    make(map[int64]bool, 0),
 		sliceCount: sliceCount,
 		buffer:     make([]byte, manifest.chunkMaxSize),
 	}
 }
 
-func (d *manifestImage) ReadAt(p []byte, off uint) error {
-	debugf("READ offset %d, len %d\n", off, len(p))
+func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
+	timeStart := time.Now()
 
-	if err := d.syncSlices(int64(off), int64(off) + int64(len(p))); err != nil {
-		return d.wrapError(err)
-	}
+	diskfrom := off
+	diskto := diskfrom + int64(len(b))
 
-	read, err := d.target.ReadAt(p, int64(off))
+	slices, err := d.manifest.SlicesBetween(diskfrom, diskto)
 	if err != nil {
-		return err
-	} else if read != len(p) {
-		return errors.New("cannot read from target file")
+		return 0, err
 	}
 
-	return nil
-}
-
-func (d *manifestImage) WriteAt(p []byte, off uint) error {
-	if d.target == nil {
-		debugf("Failed to write to device at offset %d, to %d: Cannot write to read only device\n", off, len(p))
-		return errors.New("cannot write to read only device")
-	}
-
-	if err := d.syncSlices(int64(off), int64(off) + int64(len(p))); err != nil {
-		return err
-	}
-
-	debugf("WRITE offset %d, len %d\n", off, len(p))
-
-	written, err := d.target.WriteAt(p, int64(off))
-	if err != nil {
-		return err
-	} else if written != len(p) {
-		return errors.New("could not write all bytes")
-	}
-
-	return nil
-}
-
-func (d *manifestImage) syncSlices(from int64, to int64) error {
-	slices, err := d.manifest.SlicesBetween(from, to)
-	if err != nil {
-		return d.wrapError(err)
-	}
-
+	diskoff := diskfrom
+	bfrom := int64(0)
 	for _, slice := range slices {
-		if err := d.syncSlice(slice); err != nil {
-			return err
-		}
-	}
+		chunkoff := diskoff - slice.diskfrom
+		blen := minInt64(slice.diskto, diskto) - diskoff
+		bto := bfrom + blen
 
-	return nil
-}
-
-func (d *manifestImage) syncSlice(slice *chunkSlice) error {
-	if _, ok := d.written[slice.diskfrom]; ok {
-		return nil
-	}
-
-	if slice.checksum == nil {
-		d.written[slice.diskfrom] = true
-		return nil
-	}
-
-	buffer := d.buffer
-	length := slice.chunkto - slice.chunkfrom
-	debugf("Syncing diskoff %d - %d (len %d) -> checksum %x, %d to %d\n",
-		slice.diskfrom, slice.diskto, length, slice.checksum, slice.chunkfrom, slice.chunkto)
-
-	checksumStr := fmt.Sprintf("%x", slice.checksum)
-
-	read, err := d.cache.ReadAt(slice.checksum, buffer[:length], slice.chunkfrom)
-	if err != nil {
-		debugf("Chunk %x not in cache. Retrieving full chunk ...\n", slice.checksum)
-
-		// Read entire chunk, store to cache
-		chunk := d.chunks[checksumStr]
-
-		// FIXME: This will fill up the local cache will all chunks and never delete it
-		read, err = d.store.ReadAt(slice.checksum, buffer[:chunk.size], 0)
-		if err != nil {
-			return err
-		} else if int64(read) != chunk.size {
-			return errors.New(fmt.Sprintf("cannot read entire chunk, read only %d bytes", read))
+		if slice.kind != kindSparse {
+			timeReadStart := time.Now()
+			read, err := d.store.ReadAt(slice.checksum, b[bfrom:bto], chunkoff)
+			if err != nil {
+				return 0, err
+			} else if int64(read) != blen {
+				return 0, errors.New(fmt.Sprintf("cannot read required chunk %x, section %d-%d (%d bytes, only read %d)",
+					slice.checksum, bfrom, bto, blen, read))
+			}
+			debugf("Reading %x, b[%d:%d], at offset %d, len %d, took %s\n",
+				slice.checksum, bfrom, bto, chunkoff, blen, time.Now().Sub(timeReadStart))
 		}
 
-		if err := d.cache.Write(slice.checksum, buffer[:chunk.size]); err != nil {
-			return err
-		}
-
-		buffer = buffer[slice.chunkfrom:slice.chunkto]
-	} else if int64(read) != length {
-		return errors.New(fmt.Sprintf("cannot read entire slice, read only %d bytes", read))
+		diskoff += blen
+		bfrom += blen
 	}
 
-	_, err = d.target.WriteAt(buffer[:length], slice.diskfrom)
-	if err != nil {
-		return err
-	}
-
-	// Accounting
-	d.written[slice.diskfrom] = true
-	d.sliceCount[checksumStr]--
-
-	// Remove from cache if it will never be requested again
-	if d.sliceCount[checksumStr] == 0 {
-		if err := d.cache.Remove(slice.checksum); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (d *manifestImage) Disconnect() {
-	// No thanks
-}
-
-func (d *manifestImage) Flush() error {
-	return nil
-}
-
-func (d *manifestImage) Trim(off, length uint) error {
-	return nil
+	debugf("READ offset %d, len %d, took %s\n", off, len(b), time.Now().Sub(timeStart))
+	return len(b), nil
 }
 
 func findNextNbdDevice() (string, error) {
@@ -250,7 +139,3 @@ func findNextNbdDevice() (string, error) {
 	return "", errors.New("cannot find free nbd device, driver not loaded?")
 }
 
-func (d *manifestImage) wrapError(err error) error {
-	fmt.Printf("Error: %s\n", err.Error())
-	return err
-}

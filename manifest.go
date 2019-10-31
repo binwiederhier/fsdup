@@ -142,6 +142,10 @@ func (m *manifest) SlicesBetween(from int64, to int64) ([]*chunkSlice, error) {
 		slices = append(slices, m.diskMap[offsets[i]])
 	}
 
+	if len(slices) == 0 {
+		return nil, errors.New("no slices found between offsets")
+	}
+
 	return slices, nil
 }
 

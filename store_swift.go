@@ -49,7 +49,7 @@ func (idx *swiftChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64)
 	checksumStr := fmt.Sprintf("%x", checksum)
 
 	requestHeaders := make(swift.Headers)
-	requestHeaders["Range"] = fmt.Sprintf("bytes=%d-%d", offset, len(buffer)-1)
+	requestHeaders["Range"] = fmt.Sprintf("bytes=%d-%d", offset, offset + int64(len(buffer)) - 1)
 
 	var responseBuffer bytes.Buffer
 	_, err := idx.connection.ObjectGet(idx.container, checksumStr, &responseBuffer, false, requestHeaders)
@@ -58,12 +58,12 @@ func (idx *swiftChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64)
 	}
 
 	if responseBuffer.Len() != len(buffer) {
-		return 0, errors.New(fmt.Sprintf("cannot read %d chunk bytes, response was %s bytes instead", len(buffer), responseBuffer.Len()))
+		return 0, errors.New(fmt.Sprintf("cannot read %d chunk bytes, response was %d bytes instead", len(buffer), responseBuffer.Len()))
 	}
 
 	copied := copy(buffer, responseBuffer.Bytes())
 	if copied != len(buffer) {
-		return 0, errors.New(fmt.Sprintf("cannot copy %d chunk bytes, only %s bytes copied instead", len(buffer), copied))
+		return 0, errors.New(fmt.Sprintf("cannot copy %d chunk bytes, only %d bytes copied instead", len(buffer), copied))
 	}
 
 	return len(buffer), nil
