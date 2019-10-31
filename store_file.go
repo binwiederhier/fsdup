@@ -5,24 +5,25 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sync"
 )
 
 type fileChunkStore struct {
 	root     string
-	chunkMap map[string]bool
+	chunkMap *sync.Map
 }
 
 func NewFileChunkStore(root string) *fileChunkStore {
 	return &fileChunkStore{
 		root:     root,
-		chunkMap: make(map[string]bool, 0),
+		chunkMap: &sync.Map{},
 	}
 }
 
 func (idx *fileChunkStore) Stat(checksum []byte) error {
 	checksumStr := fmt.Sprintf("%x", checksum)
 
-	if _, ok := idx.chunkMap[checksumStr]; ok {
+	if _, ok := idx.chunkMap.Load(checksumStr); ok {
 		return nil
 	}
 
@@ -36,22 +37,28 @@ func (idx *fileChunkStore) Stat(checksum []byte) error {
 func (idx *fileChunkStore) Write(checksum []byte, buffer []byte) error {
 	checksumStr := fmt.Sprintf("%x", checksum)
 
-	if _, ok := idx.chunkMap[checksumStr]; !ok {
+	if _, ok := idx.chunkMap.Load(checksumStr); !ok {
 		dir := fmt.Sprintf("%s/%s/%s", idx.root, checksumStr[0:3], checksumStr[3:6])
 		file := fmt.Sprintf("%s/%s", dir, checksumStr)
+		tmpFile := fmt.Sprintf("%s/%s.tmp", dir, checksumStr)
 
 		if _, err := os.Stat(file); err != nil {
 			if err := os.MkdirAll(dir, 0770); err != nil {
 				return err
 			}
 
-			err = ioutil.WriteFile(file, buffer, 0666)
+			err = ioutil.WriteFile(tmpFile, buffer, 0666)
+			if err != nil {
+				return err
+			}
+
+			err = os.Rename(tmpFile, file)
 			if err != nil {
 				return err
 			}
 		}
 
-		idx.chunkMap[checksumStr] = true
+		idx.chunkMap.Store(checksumStr, true)
 	}
 
 	return nil
@@ -70,6 +77,7 @@ func (idx *fileChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) 
 	if err != nil {
 		return 0, err
 	}
+	defer chunk.Close()
 
 	read, err := chunk.ReadAt(buffer, offset)
 	if err != nil {
@@ -94,7 +102,7 @@ func (idx *fileChunkStore) Remove(checksum []byte) error {
 	os.Remove(dir2)
 	os.Remove(dir1)
 
-	delete(idx.chunkMap, checksumStr)
+	idx.chunkMap.Delete(checksumStr)
 
 	return nil
 }

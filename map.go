@@ -15,10 +15,10 @@ type manifestImage struct {
 	manifest    *manifest
 	store       ChunkStore
 	cache       ChunkStore
-	cacheExpiry *sync.Map
+	cacheQueue  chan *chunkSlice
 	chunks      map[string]*chunk
 	sliceCount  map[string]int64
-	buffer      []byte
+	bufferPool  *sync.Pool
 }
 
 func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile string) error {
@@ -51,7 +51,7 @@ func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile str
 	source := &copyondemand.SyncReaderAt{Reader: image, Size: uint64(manifest.Size())}
 	backingFile := &copyondemand.SyncFile{File: target, Size: uint64(manifest.Size())}
 
-	if err := copyondemand.New(deviceName, source, backingFile, false); err != nil {
+	if err := copyondemand.New(deviceName, source, backingFile, true); err != nil {
 		return err
 	}
 
@@ -75,15 +75,48 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 		}
 	}
 
-	return &manifestImage{
-		manifest:    manifest,
-		store:       store,
-		chunks:      manifest.Chunks(), // cache !
-		cache:       cache,
-		cacheExpiry: &sync.Map{},
-		sliceCount:  sliceCount,
-		buffer:      make([]byte, manifest.chunkMaxSize),
+	bufferPool := &sync.Pool{
+		New: func() interface{} {
+			return make([]byte, manifest.chunkMaxSize)
+		},
 	}
+
+	cacheChan := make(chan *chunkSlice)
+
+	image := &manifestImage{
+		manifest:   manifest,
+		store:      store,
+		chunks:     manifest.Chunks(), // cache !
+		cache:      cache,
+		cacheQueue: cacheChan,
+		sliceCount: sliceCount,
+		bufferPool: bufferPool,
+	}
+
+	go func() {
+
+	}()
+
+	for i := 0; i < 200; i++ {
+		go func() {
+			for slice := range cacheChan {
+				if err := cache.Stat(slice.checksum); err != nil {
+					debugf("Reading full chunk %x to cache\n", slice.checksum)
+					buffer := bufferPool.Get().([]byte)
+					defer bufferPool.Put(buffer)
+
+					err = image.readSlice(slice, buffer[:slice.length], 0)
+					if err != nil {
+						return
+					}
+
+					cache.Write(slice.checksum, buffer[:slice.length])
+				}
+			}
+		}()
+	}
+
+	return image
 }
 
 func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
@@ -96,6 +129,13 @@ func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
 	slices, err := d.manifest.SlicesBetween(diskfrom, diskto)
 	if err != nil {
 		return 0, err
+	}
+
+	// Request full chunks to be cached
+	for _, slice := range slices {
+		if slice.kind != kindSparse {
+			d.cacheQueue <- slice
+		}
 	}
 
 	reads := 0
@@ -112,7 +152,12 @@ func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
 			reads++
 
 			go func(slice *chunkSlice, bfrom int64, bto int64, chunkoff int64) {
-				errChan <- d.readSlice(slice, b[bfrom:bto], chunkoff)
+				_, err := d.cache.ReadAt(slice.checksum, b[bfrom:bto], chunkoff)
+				if err != nil { // FIXME check length
+					errChan <- d.readSlice(slice, b[bfrom:bto], chunkoff)
+				} else {
+					errChan <- nil
+				}
 			}(slice, bfrom, bto, chunkoff)
 		}
 
@@ -169,4 +214,3 @@ func findNextNbdDevice() (string, error) {
 
 	return "", errors.New("cannot find free nbd device, driver not loaded?")
 }
-
