@@ -1,11 +1,14 @@
 package fsdup
 
 import (
+	"bufio"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"gitlab.datto.net/pheckel/copy-on-demand/copyondemand"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,13 +18,13 @@ type manifestImage struct {
 	manifest    *manifest
 	store       ChunkStore
 	cache       ChunkStore
-	cacheQueue  chan *chunkSlice
+	cacheQueue  chan *chunkRequest
 	chunks      map[string]*chunk
 	sliceCount  map[string]int64
 	bufferPool  *sync.Pool
 }
 
-func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile string) error {
+func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile string, fingerprintFileName string) error {
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err
@@ -39,6 +42,15 @@ func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile str
 		}
 	}
 
+	var fingerprintFile *os.File
+	if fingerprintFileName != "" {
+		fingerprintFile, err = os.OpenFile(fingerprintFileName, os.O_RDONLY, 0600)
+		if err != nil {
+			return err
+		}
+	}
+
+
 	deviceName, err := findNextNbdDevice()
 	if err != nil {
 		return err
@@ -46,7 +58,7 @@ func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile str
 
 	debugf("Creating device %s ...\n", deviceName)
 
-	image := NewManifestImage(manifest, store, cache, target)
+	image := NewManifestImage(manifest, store, cache, fingerprintFile)
 
 	source := &copyondemand.SyncReaderAt{Reader: image, Size: uint64(manifest.Size())}
 	backingFile := &copyondemand.SyncFile{File: target, Size: uint64(manifest.Size())}
@@ -58,7 +70,12 @@ func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile str
 	return nil
 }
 
-func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, target *os.File) *manifestImage {
+type chunkRequest struct {
+	checksum []byte
+	length int64
+}
+
+func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, fingerprintFile *os.File) *manifestImage {
 	sliceCount := make(map[string]int64, 0)
 
 	// Create slice count map for cache accounting
@@ -81,7 +98,7 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 		},
 	}
 
-	cacheChan := make(chan *chunkSlice)
+	cacheChan := make(chan *chunkRequest)
 
 	image := &manifestImage{
 		manifest:   manifest,
@@ -94,23 +111,46 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 	}
 
 	go func() {
+		if fingerprintFile == nil {
+			return
+		}
 
+		scanner := bufio.NewScanner(fingerprintFile)
+		for scanner.Scan() {
+			parts := strings.Split(strings.TrimSpace(scanner.Text()), " ")
+			if len(parts) != 2 {
+				continue
+			}
+
+			checksum, err := hex.DecodeString(parts[0])
+			if err != nil {
+				continue
+			}
+
+			length, err := strconv.Atoi(parts[1])
+			if err != nil {
+				continue
+			}
+
+			debugf("Adding fingerprint request to read queue for %x %d\n", checksum, length)
+			cacheChan <- &chunkRequest{checksum: checksum, length: int64(length)}
+		}
 	}()
 
 	for i := 0; i < 200; i++ {
 		go func() {
-			for slice := range cacheChan {
-				if err := cache.Stat(slice.checksum); err != nil {
-					debugf("Reading full chunk %x to cache\n", slice.checksum)
+			for request := range cacheChan {
+				if err := cache.Stat(request.checksum); err != nil {
+					debugf("Reading full chunk %x %d to cache\n", request.checksum, request.length)
 					buffer := bufferPool.Get().([]byte)
 					defer bufferPool.Put(buffer)
 
-					err = image.readSlice(slice, buffer[:slice.length], 0)
+					err = image.readSlice(request.checksum, buffer[:request.length], 0)
 					if err != nil {
 						return
 					}
 
-					cache.Write(slice.checksum, buffer[:slice.length])
+					cache.Write(request.checksum, buffer[:request.length])
 				}
 			}
 		}()
@@ -134,7 +174,7 @@ func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
 	// Request full chunks to be cached
 	for _, slice := range slices {
 		if slice.kind != kindSparse {
-			d.cacheQueue <- slice
+			d.cacheQueue <- &chunkRequest{checksum: slice.checksum, length: slice.length}
 		}
 	}
 
@@ -154,7 +194,7 @@ func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
 			go func(slice *chunkSlice, bfrom int64, bto int64, chunkoff int64) {
 				_, err := d.cache.ReadAt(slice.checksum, b[bfrom:bto], chunkoff)
 				if err != nil { // FIXME check length
-					errChan <- d.readSlice(slice, b[bfrom:bto], chunkoff)
+					errChan <- d.readSlice(slice.checksum, b[bfrom:bto], chunkoff)
 				} else {
 					errChan <- nil
 				}
@@ -182,17 +222,17 @@ func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
 	return len(b), nil
 }
 
-func (d *manifestImage) readSlice(slice *chunkSlice, b []byte, off int64) error {
+func (d *manifestImage) readSlice(checksum []byte, b []byte, off int64) error {
 	timeReadStart := time.Now()
-	read, err := d.store.ReadAt(slice.checksum, b, off)
+	read, err := d.store.ReadAt(checksum, b, off)
 	if err != nil {
 		return err
 	} else if read != len(b) {
 		return errors.New(fmt.Sprintf("cannot read required chunk %x, offset %d, length %d, only read %d bytes",
-			slice.checksum, off, len(b), read))
+			checksum, off, len(b), read))
 	}
 	debugf("Reading chunk %x, offset %d, length %d, took %s",
-		slice.checksum, off, len(b), time.Now().Sub(timeReadStart))
+		checksum, off, len(b), time.Now().Sub(timeReadStart))
 	return nil
 }
 

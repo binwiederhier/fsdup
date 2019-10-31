@@ -157,6 +157,7 @@ func mapCommand(args []string) {
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
 	cacheFlag := flags.String("cache", "cache", "Location of the chunk cache")
+	fingerprintFlag := flags.String("fingerprint", "", "Location of the fingerprint file")
 
 	flags.Parse(args)
 
@@ -169,7 +170,7 @@ func mapCommand(args []string) {
 	}
 
 	manifestFile := flags.Arg(0)
-	targetFile := flags.Arg(1)
+	targetFileName := flags.Arg(1)
 
 	store, err := createChunkStore(*storeFlag)
 	if err != nil {
@@ -178,7 +179,7 @@ func mapCommand(args []string) {
 
 	cache := fsdup.NewFileChunkStore(*cacheFlag)
 
-	if err := fsdup.Map(manifestFile, store, cache, targetFile); err != nil {
+	if err := fsdup.Map(manifestFile, store, cache, targetFileName, *fingerprintFlag); err != nil {
 		exit(2, "Cannot map drive file: " + string(err.Error()))
 	}
 }
