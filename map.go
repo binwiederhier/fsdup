@@ -7,15 +7,18 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 type manifestImage struct {
-	manifest   *manifest
-	store      ChunkStore
-	chunks     map[string]*chunk
-	sliceCount map[string]int64
-	buffer     []byte
+	manifest    *manifest
+	store       ChunkStore
+	cache       ChunkStore
+	cacheExpiry *sync.Map
+	chunks      map[string]*chunk
+	sliceCount  map[string]int64
+	buffer      []byte
 }
 
 func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile string) error {
@@ -73,11 +76,13 @@ func NewManifestImage(manifest *manifest, store ChunkStore, cache ChunkStore, ta
 	}
 
 	return &manifestImage{
-		manifest:   manifest,
-		store:      store,
-		chunks:     manifest.Chunks(),  // cache !
-		sliceCount: sliceCount,
-		buffer:     make([]byte, manifest.chunkMaxSize),
+		manifest:    manifest,
+		store:       store,
+		chunks:      manifest.Chunks(), // cache !
+		cache:       cache,
+		cacheExpiry: &sync.Map{},
+		sliceCount:  sliceCount,
+		buffer:      make([]byte, manifest.chunkMaxSize),
 	}
 }
 
@@ -87,10 +92,14 @@ func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
 	diskfrom := off
 	diskto := diskfrom + int64(len(b))
 
+	// Get slices that contain the data we need to read
 	slices, err := d.manifest.SlicesBetween(diskfrom, diskto)
 	if err != nil {
 		return 0, err
 	}
+
+	reads := 0
+	errChan := make(chan error)
 
 	diskoff := diskfrom
 	bfrom := int64(0)
@@ -100,24 +109,46 @@ func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
 		bto := bfrom + blen
 
 		if slice.kind != kindSparse {
-			timeReadStart := time.Now()
-			read, err := d.store.ReadAt(slice.checksum, b[bfrom:bto], chunkoff)
-			if err != nil {
-				return 0, err
-			} else if int64(read) != blen {
-				return 0, errors.New(fmt.Sprintf("cannot read required chunk %x, section %d-%d (%d bytes, only read %d)",
-					slice.checksum, bfrom, bto, blen, read))
-			}
-			debugf("Reading %x, b[%d:%d], at offset %d, len %d, took %s\n",
-				slice.checksum, bfrom, bto, chunkoff, blen, time.Now().Sub(timeReadStart))
+			reads++
+
+			go func(slice *chunkSlice, bfrom int64, bto int64, chunkoff int64) {
+				errChan <- d.readSlice(slice, b[bfrom:bto], chunkoff)
+			}(slice, bfrom, bto, chunkoff)
 		}
 
 		diskoff += blen
 		bfrom += blen
 	}
 
+	err = nil
+	for i := 0; i < reads; i++ {
+		if err == nil {
+			err = <- errChan
+		} else {
+			<- errChan
+		}
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
 	debugf("READ offset %d, len %d, took %s\n", off, len(b), time.Now().Sub(timeStart))
 	return len(b), nil
+}
+
+func (d *manifestImage) readSlice(slice *chunkSlice, b []byte, off int64) error {
+	timeReadStart := time.Now()
+	read, err := d.store.ReadAt(slice.checksum, b, off)
+	if err != nil {
+		return err
+	} else if read != len(b) {
+		return errors.New(fmt.Sprintf("cannot read required chunk %x, offset %d, length %d, only read %d bytes",
+			slice.checksum, off, len(b), read))
+	}
+	debugf("Reading chunk %x, offset %d, length %d, took %s",
+		slice.checksum, off, len(b), time.Now().Sub(timeReadStart))
+	return nil
 }
 
 func findNextNbdDevice() (string, error) {
