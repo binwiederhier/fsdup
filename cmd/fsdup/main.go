@@ -304,7 +304,7 @@ func statCommand(args []string) {
 }
 
 func createChunkStore(spec string) (fsdup.ChunkStore, error) {
-	if regexp.MustCompile(`^(ceph|swift):`).MatchString(spec) {
+	if regexp.MustCompile(`^(ceph|swift|gcloud):`).MatchString(spec) {
 		uri, err := url.ParseRequestURI(spec)
 		if err != nil {
 			return nil, err
@@ -314,6 +314,8 @@ func createChunkStore(spec string) (fsdup.ChunkStore, error) {
 			return createCephChunkStore(uri)
 		} else if uri.Scheme == "swift" {
 			return createSwiftChunkStore(uri)
+		} else if uri.Scheme == "gcloud" {
+			return createGcloudStore(uri)
 		}
 
 		return nil, errors.New("store type not supported")
@@ -365,6 +367,20 @@ func createSwiftChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
 	// TODO provide way to override environment variables
 
 	return fsdup.NewSwiftStore(connection, container), nil
+}
+
+func createGcloudStore(uri *url.URL) (fsdup.ChunkStore, error) {
+	project := uri.Query().Get("project")
+	if project == "" {
+		return nil, errors.New("invalid syntax for gcloud store type, project parameter is required")
+	}
+
+	bucket := uri.Query().Get("bucket")
+	if bucket == "" {
+		return nil, errors.New("invalid syntax for gcloud store type, bucket parameter is required")
+	}
+
+	return fsdup.NewGcloudStore(project, bucket), nil
 }
 
 func convertToBytes(s string) (int64, error) {
