@@ -61,6 +61,10 @@ func main() {
 		printCommand(args)
 	case "stat":
 		statCommand(args)
+	case "server":
+		serverCommand(args)
+	case "upload":
+		uploadCommand(args)
 	default:
 		usage()
 	}
@@ -79,8 +83,10 @@ func usage() {
 	fmt.Println("  index [-nowrite] [-store STORE] [-offset OFFSET] [-minsize MINSIZE] [-exact] [-nofile] INFILE MANIFEST")
 	fmt.Println("  import [-store STORE] INFILE MANIFEST")
 	fmt.Println("  export [-store STORE] MANIFEST OUTFILE")
+	fmt.Println("  upload [-server ADDR:PORT] INFILE MANIFEST")
 	fmt.Println("  map [-store STORE] [-cache CACHE] MANIFEST OUTFILE")
 	fmt.Println("  print [disk|chunks] MANIFEST")
+	fmt.Println("  server [-store STORE] [ADDR]:PORT")
 	fmt.Println("  stat MANIFEST...")
 
 	os.Exit(1)
@@ -300,6 +306,54 @@ func statCommand(args []string) {
 
 	if err := fsdup.Stat(manifests, *verboseFlag); err != nil {
 		exit(2, "Cannot create manifest stats: " + string(err.Error()))
+	}
+}
+
+func serverCommand(args []string) {
+	flags := flag.NewFlagSet("server", flag.ExitOnError)
+	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
+	storeFlag := flags.String("store", "index", "Location of the chunk store")
+
+	flags.Parse(args)
+
+	if flags.NArg() < 1 {
+		usage()
+	}
+
+	if *debugFlag {
+		fsdup.Debug = *debugFlag
+	}
+
+	store, err := createChunkStore(*storeFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
+
+	listenAddr := flags.Arg(0)
+	if err := fsdup.ListenAndServe(listenAddr, store); err != nil {
+		exit(1, err.Error())
+	}
+}
+
+func uploadCommand(args []string) {
+	flags := flag.NewFlagSet("upload", flag.ExitOnError)
+	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
+	serverFlag := flags.String("server", ":9991", "Server address")
+	flags.Parse(args)
+
+	if flags.NArg() < 2 {
+		usage()
+	}
+
+	if *debugFlag {
+		fsdup.Debug = *debugFlag
+	}
+
+	infile := flags.Arg(0)
+	manifest := flags.Arg(1)
+
+	if err := fsdup.Upload(manifest, infile, *serverFlag); err != nil {
+		exit(2, "Cannot upload chunks for file: " + string(err.Error()))
 	}
 }
 

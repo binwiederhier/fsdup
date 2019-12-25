@@ -1,0 +1,27 @@
+syntax = "proto3";
+package pb;
+
+import "pb/manifest.proto";
+
+service Hub {
+    rpc Diff(DiffRequest) returns (DiffResponse);
+    rpc Upload(UploadRequest) returns (UploadResponse);
+}
+
+message DiffRequest {
+    string Id = 1;
+    repeated bytes Checksums = 2;
+}
+
+message DiffResponse {
+    repeated bytes UnknownChecksums = 1;
+}
+
+message UploadRequest {
+    string Id = 1;
+    bytes Checksum = 2;
+    bytes Data = 3;
+}
+
+message UploadResponse {
+}

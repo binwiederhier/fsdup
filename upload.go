@@ -1,16 +1,56 @@
 package fsdup
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc"
+	"heckel.io/fsdup/pb"
 	"os"
 )
 
-func Import(manifestFile string, store ChunkStore, inputFile string) error {
+func Upload(manifestFile string, inputFile string, serverAddr string) error {
 	manifest, err := NewManifestFromFile(manifestFile)
 	if err != nil {
 		return err
+	}
+
+	// Get list of all chunks
+	checksums := make([][]byte, 0)
+	for checksumStr, _ := range manifest.Chunks() {
+		checksum, err := hex.DecodeString(checksumStr)
+		if err != nil {
+			return err
+		}
+
+		if len(checksum) > 0 {
+			checksums = append(checksums, checksum)
+		}
+	}
+
+	// Find unknown chunks
+	conn, err := grpc.Dial(serverAddr, grpc.WithBlock(), grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(128 * 1024 * 1024))) // FIXME
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := pb.NewHubClient(conn)
+
+	response, err := client.Diff(context.Background(), &pb.DiffRequest{
+		Id: "1",
+		Checksums: checksums,
+	}, )
+
+	if err != nil {
+		return err
+	}
+
+	unknowns := make(map[string]bool, 0)
+	for _, checksum := range response.UnknownChecksums {
+		unknowns[fmt.Sprintf("%x", checksum)] = true
 	}
 
 	// Open file
@@ -32,26 +72,18 @@ func Import(manifestFile string, store ChunkStore, inputFile string) error {
 		return err
 	}
 
-	imported := int64(0)
-	skipped := int64(0)
 	buffer := make([]byte, manifest.chunkMaxSize)
 
 	for _, checksumStr := range manifest.ChecksumsByDiskOffset(chunkSlices) {
-		slices := chunkSlices[checksumStr]
+		if _, ok := unknowns[checksumStr]; !ok {
+			continue
+		}
 
-		statusf("Importing chunk %d (%d skipped, %d total) ...", imported + 1, skipped, len(chunkSlices))
-		debugf("Importing chunk %s (%d slices) ...\n", checksumStr, len(slices))
+		slices := chunkSlices[checksumStr]
 
 		checksum, err := hex.DecodeString(checksumStr) // FIXME this is ugly. checksum should be its own type.
 		if err != nil {
 			return err
-		}
-
-		if err := store.Stat(checksum); err == nil {
-			debugf("Skipping chunk. Already exists in index.\n")
-			skipped++
-			imported++
-			continue
 		}
 
 		chunkSize := int64(0)
@@ -70,19 +102,18 @@ func Import(manifestFile string, store ChunkStore, inputFile string) error {
 			chunkSize += slice.length
 		}
 
-		if err := store.Write(checksum, buffer[:chunkSize]); err != nil {
+		debugf("uploading %x\n", checksum)
+
+		_, err = client.Upload(context.Background(), &pb.UploadRequest{
+			Id: "1",
+			Checksum: checksum,
+			Data: buffer[:chunkSize],
+		})
+
+		if err != nil {
 			return err
 		}
-
-		imported++
 	}
-
-	err = in.Close()
-	if err != nil {
-		return err
-	}
-
-	statusf("Imported %d chunks (%d skipped)\n", imported, skipped)
 
 	return nil
 }
