@@ -4,8 +4,9 @@ package pb;
 import "pb/manifest.proto";
 
 service Hub {
-    rpc Diff(DiffRequest) returns (DiffResponse);
-    rpc Upload(UploadRequest) returns (UploadResponse);
+    rpc Diff (DiffRequest) returns (DiffResponse);
+    rpc PutChunk (PutChunkRequest) returns (PutChunkResponse);
+    rpc PutManifest (PutManifestRequest) returns (PutManifestResponse);
 }
 
 message DiffRequest {
@@ -17,11 +18,19 @@ message DiffResponse {
     repeated bytes UnknownChecksums = 1;
 }
 
-message UploadRequest {
+message PutChunkRequest {
     string Id = 1;
     bytes Checksum = 2;
     bytes Data = 3;
 }
 
-message UploadResponse {
+message PutChunkResponse {
+}
+
+message PutManifestRequest {
+    string Id = 1;
+    ManifestV1 Manifest = 2;
+}
+
+message PutManifestResponse {
 }

@@ -104,7 +104,7 @@ func Upload(manifestFile string, inputFile string, serverAddr string) error {
 
 		debugf("uploading %x\n", checksum)
 
-		_, err = client.Upload(context.Background(), &pb.UploadRequest{
+		_, err = client.PutChunk(context.Background(), &pb.PutChunkRequest{
 			Id: "1",
 			Checksum: checksum,
 			Data: buffer[:chunkSize],
@@ -114,6 +114,11 @@ func Upload(manifestFile string, inputFile string, serverAddr string) error {
 			return err
 		}
 	}
+
+	client.PutManifest(context.Background(), &pb.PutManifestRequest{
+		Id: "1",
+		Manifest: manifest.Proto(),
+	})
 
 	return nil
 }

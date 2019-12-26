@@ -286,7 +286,20 @@ func (m *manifest) MergeAtOffset(offset int64, other *manifest) {
 }
 
 func (m *manifest) WriteToFile(file string) error {
-	// Transform to protobuf struct
+	// Save to file
+	buffer, err := proto.Marshal(m.Proto())
+	if err != nil {
+		return err
+	}
+
+	if err := ioutil.WriteFile(file, buffer, 0644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *manifest) Proto() *pb.ManifestV1 {
 	pbmanifest := &pb.ManifestV1{
 		Size: m.Size(),
 		Slices: make([]*pb.Slice, len(m.diskMap)),
@@ -303,17 +316,7 @@ func (m *manifest) WriteToFile(file string) error {
 		}
 	}
 
-	// Save to file
-	buffer, err := proto.Marshal(pbmanifest)
-	if err != nil {
-		return err
-	}
-
-	if err := ioutil.WriteFile(file, buffer, 0644); err != nil {
-		return err
-	}
-
-	return nil
+	return pbmanifest
 }
 
 func (m *manifest) PrintDisk() {

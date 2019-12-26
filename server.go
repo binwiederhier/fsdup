@@ -2,14 +2,23 @@ package fsdup
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
 	"google.golang.org/grpc"
 	"heckel.io/fsdup/pb"
 	"net"
 )
 
 func ListenAndServe(address string, store ChunkStore) error {
+	db, err := sql.Open("mysql", "fsdup:fsdup@/fsdup")
+	if err != nil {
+		return err
+	}
+
 	srv := &server{
 		store: store,
+		db: db,
 	}
 
 	listener, err := net.Listen("tcp", address)
@@ -25,6 +34,7 @@ func ListenAndServe(address string, store ChunkStore) error {
 
 type server struct {
 	store ChunkStore
+	db *sql.DB
 }
 
 func (s *server) Diff(ctx context.Context, req *pb.DiffRequest) (*pb.DiffResponse, error) {
@@ -40,12 +50,56 @@ func (s *server) Diff(ctx context.Context, req *pb.DiffRequest) (*pb.DiffRespons
 	}, nil
 }
 
-
-func (s *server) Upload(ctx context.Context, req *pb.UploadRequest) (*pb.UploadResponse, error) {
+func (s *server) PutChunk(ctx context.Context, req *pb.PutChunkRequest) (*pb.PutChunkResponse, error) {
 	err := s.store.Write(req.Checksum, req.Data)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.UploadResponse{}, nil
+	return &pb.PutChunkResponse{}, nil
+}
+
+func (s *server) PutManifest(ctx context.Context, req *pb.PutManifestRequest) (*pb.PutManifestResponse, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO manifest 
+		SET 
+			manifestId = ?,
+			offset = ?,
+			checksum = ?,
+			chunkOffset = ?,
+			chunkLength = ?,
+			kind = ?
+`)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close() // danger!
+
+	offset := int64(0)
+	for _, slice := range req.Manifest.Slices {
+		if kind(slice.Kind) == kindSparse {
+			_, err = stmt.Exec(req.Id, offset, &sql.NullString{},
+				slice.Offset, slice.Length, slice.Kind)
+		} else {
+			_, err = stmt.Exec(req.Id, offset, fmt.Sprintf("%x", slice.Checksum),
+				slice.Offset, slice.Length, slice.Kind)
+		}
+		if err != nil {
+			return nil, err
+		}
+		offset += slice.Length
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.PutManifestResponse{}, nil
 }

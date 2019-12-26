@@ -7,6 +7,7 @@ require (
 	cloud.google.com/go/storage v1.4.0
 	github.com/binwiederhier/buse-go v0.0.0-20190620221802-88a95178f4c4
 	github.com/ceph/go-ceph v0.0.0-20181217221554-e32f9f0f2e94
+	github.com/go-sql-driver/mysql v1.4.1
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
 	github.com/golang/protobuf v1.3.2
 	github.com/hashicorp/golang-lru v0.5.3 // indirect

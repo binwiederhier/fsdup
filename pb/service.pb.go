@@ -110,7 +110,7 @@ func (m *DiffResponse) GetUnknownChecksums() [][]byte {
 	return nil
 }
 
-type UploadRequest struct {
+type PutChunkRequest struct {
 	Id                   string   `protobuf:"bytes,1,opt,name=Id,proto3" json:"Id,omitempty"`
 	Checksum             []byte   `protobuf:"bytes,2,opt,name=Checksum,proto3" json:"Checksum,omitempty"`
 	Data                 []byte   `protobuf:"bytes,3,opt,name=Data,proto3" json:"Data,omitempty"`
@@ -119,109 +119,193 @@ type UploadRequest struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *UploadRequest) Reset()         { *m = UploadRequest{} }
-func (m *UploadRequest) String() string { return proto.CompactTextString(m) }
-func (*UploadRequest) ProtoMessage()    {}
-func (*UploadRequest) Descriptor() ([]byte, []int) {
+func (m *PutChunkRequest) Reset()         { *m = PutChunkRequest{} }
+func (m *PutChunkRequest) String() string { return proto.CompactTextString(m) }
+func (*PutChunkRequest) ProtoMessage()    {}
+func (*PutChunkRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_6ff5ab49d8a5fcc4, []int{2}
 }
 
-func (m *UploadRequest) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_UploadRequest.Unmarshal(m, b)
+func (m *PutChunkRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PutChunkRequest.Unmarshal(m, b)
 }
-func (m *UploadRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_UploadRequest.Marshal(b, m, deterministic)
+func (m *PutChunkRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PutChunkRequest.Marshal(b, m, deterministic)
 }
-func (m *UploadRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_UploadRequest.Merge(m, src)
+func (m *PutChunkRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PutChunkRequest.Merge(m, src)
 }
-func (m *UploadRequest) XXX_Size() int {
-	return xxx_messageInfo_UploadRequest.Size(m)
+func (m *PutChunkRequest) XXX_Size() int {
+	return xxx_messageInfo_PutChunkRequest.Size(m)
 }
-func (m *UploadRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_UploadRequest.DiscardUnknown(m)
+func (m *PutChunkRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_PutChunkRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_UploadRequest proto.InternalMessageInfo
+var xxx_messageInfo_PutChunkRequest proto.InternalMessageInfo
 
-func (m *UploadRequest) GetId() string {
+func (m *PutChunkRequest) GetId() string {
 	if m != nil {
 		return m.Id
 	}
 	return ""
 }
 
-func (m *UploadRequest) GetChecksum() []byte {
+func (m *PutChunkRequest) GetChecksum() []byte {
 	if m != nil {
 		return m.Checksum
 	}
 	return nil
 }
 
-func (m *UploadRequest) GetData() []byte {
+func (m *PutChunkRequest) GetData() []byte {
 	if m != nil {
 		return m.Data
 	}
 	return nil
 }
 
-type UploadResponse struct {
+type PutChunkResponse struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *UploadResponse) Reset()         { *m = UploadResponse{} }
-func (m *UploadResponse) String() string { return proto.CompactTextString(m) }
-func (*UploadResponse) ProtoMessage()    {}
-func (*UploadResponse) Descriptor() ([]byte, []int) {
+func (m *PutChunkResponse) Reset()         { *m = PutChunkResponse{} }
+func (m *PutChunkResponse) String() string { return proto.CompactTextString(m) }
+func (*PutChunkResponse) ProtoMessage()    {}
+func (*PutChunkResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_6ff5ab49d8a5fcc4, []int{3}
 }
 
-func (m *UploadResponse) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_UploadResponse.Unmarshal(m, b)
+func (m *PutChunkResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PutChunkResponse.Unmarshal(m, b)
 }
-func (m *UploadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_UploadResponse.Marshal(b, m, deterministic)
+func (m *PutChunkResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PutChunkResponse.Marshal(b, m, deterministic)
 }
-func (m *UploadResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_UploadResponse.Merge(m, src)
+func (m *PutChunkResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PutChunkResponse.Merge(m, src)
 }
-func (m *UploadResponse) XXX_Size() int {
-	return xxx_messageInfo_UploadResponse.Size(m)
+func (m *PutChunkResponse) XXX_Size() int {
+	return xxx_messageInfo_PutChunkResponse.Size(m)
 }
-func (m *UploadResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_UploadResponse.DiscardUnknown(m)
+func (m *PutChunkResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_PutChunkResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_UploadResponse proto.InternalMessageInfo
+var xxx_messageInfo_PutChunkResponse proto.InternalMessageInfo
+
+type PutManifestRequest struct {
+	Id                   string      `protobuf:"bytes,1,opt,name=Id,proto3" json:"Id,omitempty"`
+	Manifest             *ManifestV1 `protobuf:"bytes,2,opt,name=Manifest,proto3" json:"Manifest,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
+	XXX_unrecognized     []byte      `json:"-"`
+	XXX_sizecache        int32       `json:"-"`
+}
+
+func (m *PutManifestRequest) Reset()         { *m = PutManifestRequest{} }
+func (m *PutManifestRequest) String() string { return proto.CompactTextString(m) }
+func (*PutManifestRequest) ProtoMessage()    {}
+func (*PutManifestRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_6ff5ab49d8a5fcc4, []int{4}
+}
+
+func (m *PutManifestRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PutManifestRequest.Unmarshal(m, b)
+}
+func (m *PutManifestRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PutManifestRequest.Marshal(b, m, deterministic)
+}
+func (m *PutManifestRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PutManifestRequest.Merge(m, src)
+}
+func (m *PutManifestRequest) XXX_Size() int {
+	return xxx_messageInfo_PutManifestRequest.Size(m)
+}
+func (m *PutManifestRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_PutManifestRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PutManifestRequest proto.InternalMessageInfo
+
+func (m *PutManifestRequest) GetId() string {
+	if m != nil {
+		return m.Id
+	}
+	return ""
+}
+
+func (m *PutManifestRequest) GetManifest() *ManifestV1 {
+	if m != nil {
+		return m.Manifest
+	}
+	return nil
+}
+
+type PutManifestResponse struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *PutManifestResponse) Reset()         { *m = PutManifestResponse{} }
+func (m *PutManifestResponse) String() string { return proto.CompactTextString(m) }
+func (*PutManifestResponse) ProtoMessage()    {}
+func (*PutManifestResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_6ff5ab49d8a5fcc4, []int{5}
+}
+
+func (m *PutManifestResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PutManifestResponse.Unmarshal(m, b)
+}
+func (m *PutManifestResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PutManifestResponse.Marshal(b, m, deterministic)
+}
+func (m *PutManifestResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PutManifestResponse.Merge(m, src)
+}
+func (m *PutManifestResponse) XXX_Size() int {
+	return xxx_messageInfo_PutManifestResponse.Size(m)
+}
+func (m *PutManifestResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_PutManifestResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PutManifestResponse proto.InternalMessageInfo
 
 func init() {
 	proto.RegisterType((*DiffRequest)(nil), "pb.DiffRequest")
 	proto.RegisterType((*DiffResponse)(nil), "pb.DiffResponse")
-	proto.RegisterType((*UploadRequest)(nil), "pb.UploadRequest")
-	proto.RegisterType((*UploadResponse)(nil), "pb.UploadResponse")
+	proto.RegisterType((*PutChunkRequest)(nil), "pb.PutChunkRequest")
+	proto.RegisterType((*PutChunkResponse)(nil), "pb.PutChunkResponse")
+	proto.RegisterType((*PutManifestRequest)(nil), "pb.PutManifestRequest")
+	proto.RegisterType((*PutManifestResponse)(nil), "pb.PutManifestResponse")
 }
 
 func init() { proto.RegisterFile("pb/service.proto", fileDescriptor_6ff5ab49d8a5fcc4) }
 
 var fileDescriptor_6ff5ab49d8a5fcc4 = []byte{
-	// 239 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x90, 0x41, 0x4f, 0xc3, 0x20,
-	0x18, 0x86, 0x53, 0xba, 0x2c, 0xee, 0xb3, 0xce, 0xee, 0x3b, 0x35, 0xc4, 0x43, 0xc3, 0xa9, 0x7a,
-	0x68, 0x13, 0xbd, 0xe9, 0xd1, 0x1d, 0xdc, 0xc9, 0x84, 0x64, 0x3f, 0x00, 0x56, 0x1a, 0x9b, 0x39,
-	0xc0, 0x41, 0xf5, 0xef, 0x9b, 0x81, 0xb3, 0x33, 0x66, 0x37, 0x78, 0xe0, 0xf9, 0x78, 0x5f, 0x20,
-	0xb7, 0xb2, 0x71, 0x6a, 0xff, 0xd9, 0x6f, 0x54, 0x6d, 0xf7, 0xc6, 0x1b, 0x24, 0x56, 0xd2, 0x85,
-	0x95, 0xcd, 0x4e, 0xe8, 0xbe, 0x53, 0xce, 0x47, 0xcc, 0x9e, 0xe0, 0x72, 0xd9, 0x77, 0x1d, 0x57,
-	0x1f, 0x83, 0x72, 0x1e, 0xe7, 0x40, 0x56, 0x6d, 0x91, 0x94, 0x49, 0x35, 0xe3, 0x64, 0xd5, 0xe2,
-	0x0d, 0xcc, 0x9e, 0xdf, 0xd4, 0x66, 0xeb, 0x86, 0x9d, 0x2b, 0x48, 0x99, 0x56, 0x19, 0x1f, 0x01,
-	0x7b, 0x84, 0x2c, 0xca, 0xce, 0x1a, 0xed, 0x14, 0xde, 0x41, 0xbe, 0xd6, 0x5b, 0x6d, 0xbe, 0xf4,
-	0x28, 0x25, 0x41, 0xfa, 0xc7, 0xd9, 0x2b, 0x5c, 0xad, 0xed, 0xbb, 0x11, 0xed, 0xb9, 0xa7, 0x29,
-	0x5c, 0x1c, 0x6f, 0x17, 0xa4, 0x4c, 0xaa, 0x8c, 0xff, 0xee, 0x11, 0x61, 0xb2, 0x14, 0x5e, 0x14,
-	0x69, 0xe0, 0x61, 0xcd, 0x72, 0x98, 0x1f, 0x07, 0xc6, 0x38, 0xf7, 0x02, 0xd2, 0x97, 0x41, 0xe2,
-	0x2d, 0x4c, 0x0e, 0x29, 0xf1, 0xba, 0xb6, 0xb2, 0x3e, 0x29, 0x4b, 0xf3, 0x11, 0xfc, 0x14, 0x68,
-	0x60, 0x1a, 0x67, 0xe0, 0xe2, 0x70, 0xf6, 0x27, 0x20, 0xc5, 0x53, 0x14, 0x05, 0x39, 0x0d, 0xbf,
-	0xf8, 0xf0, 0x1d, 0x00, 0x00, 0xff, 0xff, 0x5d, 0x58, 0x32, 0x45, 0x70, 0x01, 0x00, 0x00,
+	// 299 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x91, 0xcb, 0x4f, 0xc2, 0x40,
+	0x10, 0xc6, 0xd3, 0x42, 0x0c, 0x0c, 0x04, 0xea, 0xe0, 0xa3, 0x69, 0x3c, 0x34, 0x7b, 0xaa, 0x1c,
+	0x4a, 0xc4, 0x78, 0xd1, 0xc4, 0x0b, 0x1c, 0xe4, 0x60, 0x52, 0x9b, 0xe8, 0xbd, 0x0b, 0xdb, 0xd0,
+	0x34, 0x6c, 0x57, 0x76, 0x57, 0xff, 0x24, 0xff, 0x4d, 0xd3, 0x17, 0xe5, 0x11, 0x6e, 0xed, 0x6f,
+	0xe6, 0x9b, 0x6f, 0xe6, 0x5b, 0xb0, 0x04, 0x9d, 0x48, 0xb6, 0xfd, 0x49, 0x96, 0xcc, 0x17, 0xdb,
+	0x4c, 0x65, 0x68, 0x0a, 0xea, 0x5c, 0x0a, 0x3a, 0xd9, 0x44, 0x3c, 0x89, 0x99, 0x54, 0x25, 0x26,
+	0x2f, 0xd0, 0x9b, 0x27, 0x71, 0x1c, 0xb2, 0x6f, 0xcd, 0xa4, 0xc2, 0x01, 0x98, 0x8b, 0x95, 0x6d,
+	0xb8, 0x86, 0xd7, 0x0d, 0xcd, 0xc5, 0x0a, 0xef, 0xa0, 0x3b, 0x5b, 0xb3, 0x65, 0x2a, 0xf5, 0x46,
+	0xda, 0xa6, 0xdb, 0xf2, 0xfa, 0x61, 0x03, 0xc8, 0x33, 0xf4, 0x4b, 0xb1, 0x14, 0x19, 0x97, 0x0c,
+	0xc7, 0x60, 0x7d, 0xf2, 0x94, 0x67, 0xbf, 0xbc, 0x11, 0x19, 0x85, 0xe8, 0x84, 0x93, 0x0f, 0x18,
+	0x06, 0x5a, 0xcd, 0xd6, 0x9a, 0xa7, 0xe7, 0xcc, 0x1d, 0xe8, 0xd4, 0xfd, 0xb6, 0xe9, 0x1a, 0x5e,
+	0x3f, 0xdc, 0xfd, 0x23, 0x42, 0x7b, 0x1e, 0xa9, 0xc8, 0x6e, 0x15, 0xbc, 0xf8, 0x26, 0x08, 0x56,
+	0x33, 0xb2, 0x5c, 0x89, 0x04, 0x80, 0x81, 0x56, 0xef, 0xd5, 0xd1, 0xe7, 0x9c, 0xc6, 0xd0, 0xa9,
+	0x5b, 0x0a, 0xa7, 0xde, 0x74, 0xe0, 0x0b, 0xea, 0xd7, 0xec, 0xeb, 0x21, 0xdc, 0xd5, 0xc9, 0x35,
+	0x8c, 0x0e, 0x26, 0x96, 0x46, 0xd3, 0x3f, 0x03, 0x5a, 0x6f, 0x9a, 0xe2, 0x3d, 0xb4, 0xf3, 0x4c,
+	0x70, 0x98, 0x0f, 0xd8, 0x8b, 0xd6, 0xb1, 0x1a, 0x50, 0xc5, 0xf5, 0x04, 0x9d, 0x7a, 0x5f, 0x1c,
+	0xe5, 0xd5, 0xa3, 0x40, 0x9c, 0xab, 0x43, 0x58, 0xc9, 0x5e, 0xa1, 0xb7, 0xb7, 0x00, 0xde, 0x54,
+	0x4d, 0x47, 0x37, 0x3a, 0xb7, 0x27, 0xbc, 0xd4, 0xd3, 0x8b, 0xe2, 0xe5, 0x1f, 0xff, 0x03, 0x00,
+	0x00, 0xff, 0xff, 0x2c, 0xd4, 0x30, 0xf8, 0x24, 0x02, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -237,7 +321,8 @@ const _ = grpc.SupportPackageIsVersion4
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type HubClient interface {
 	Diff(ctx context.Context, in *DiffRequest, opts ...grpc.CallOption) (*DiffResponse, error)
-	Upload(ctx context.Context, in *UploadRequest, opts ...grpc.CallOption) (*UploadResponse, error)
+	PutChunk(ctx context.Context, in *PutChunkRequest, opts ...grpc.CallOption) (*PutChunkResponse, error)
+	PutManifest(ctx context.Context, in *PutManifestRequest, opts ...grpc.CallOption) (*PutManifestResponse, error)
 }
 
 type hubClient struct {
@@ -257,9 +342,18 @@ func (c *hubClient) Diff(ctx context.Context, in *DiffRequest, opts ...grpc.Call
 	return out, nil
 }
 
-func (c *hubClient) Upload(ctx context.Context, in *UploadRequest, opts ...grpc.CallOption) (*UploadResponse, error) {
-	out := new(UploadResponse)
-	err := c.cc.Invoke(ctx, "/pb.Hub/Upload", in, out, opts...)
+func (c *hubClient) PutChunk(ctx context.Context, in *PutChunkRequest, opts ...grpc.CallOption) (*PutChunkResponse, error) {
+	out := new(PutChunkResponse)
+	err := c.cc.Invoke(ctx, "/pb.Hub/PutChunk", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hubClient) PutManifest(ctx context.Context, in *PutManifestRequest, opts ...grpc.CallOption) (*PutManifestResponse, error) {
+	out := new(PutManifestResponse)
+	err := c.cc.Invoke(ctx, "/pb.Hub/PutManifest", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +363,8 @@ func (c *hubClient) Upload(ctx context.Context, in *UploadRequest, opts ...grpc.
 // HubServer is the server API for Hub service.
 type HubServer interface {
 	Diff(context.Context, *DiffRequest) (*DiffResponse, error)
-	Upload(context.Context, *UploadRequest) (*UploadResponse, error)
+	PutChunk(context.Context, *PutChunkRequest) (*PutChunkResponse, error)
+	PutManifest(context.Context, *PutManifestRequest) (*PutManifestResponse, error)
 }
 
 // UnimplementedHubServer can be embedded to have forward compatible implementations.
@@ -279,8 +374,11 @@ type UnimplementedHubServer struct {
 func (*UnimplementedHubServer) Diff(ctx context.Context, req *DiffRequest) (*DiffResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Diff not implemented")
 }
-func (*UnimplementedHubServer) Upload(ctx context.Context, req *UploadRequest) (*UploadResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Upload not implemented")
+func (*UnimplementedHubServer) PutChunk(ctx context.Context, req *PutChunkRequest) (*PutChunkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PutChunk not implemented")
+}
+func (*UnimplementedHubServer) PutManifest(ctx context.Context, req *PutManifestRequest) (*PutManifestResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PutManifest not implemented")
 }
 
 func RegisterHubServer(s *grpc.Server, srv HubServer) {
@@ -305,20 +403,38 @@ func _Hub_Diff_Handler(srv interface{}, ctx context.Context, dec func(interface{
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Hub_Upload_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UploadRequest)
+func _Hub_PutChunk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutChunkRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(HubServer).Upload(ctx, in)
+		return srv.(HubServer).PutChunk(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/pb.Hub/Upload",
+		FullMethod: "/pb.Hub/PutChunk",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(HubServer).Upload(ctx, req.(*UploadRequest))
+		return srv.(HubServer).PutChunk(ctx, req.(*PutChunkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Hub_PutManifest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutManifestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HubServer).PutManifest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pb.Hub/PutManifest",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HubServer).PutManifest(ctx, req.(*PutManifestRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -332,8 +448,12 @@ var _Hub_serviceDesc = grpc.ServiceDesc{
 			Handler:    _Hub_Diff_Handler,
 		},
 		{
-			MethodName: "Upload",
-			Handler:    _Hub_Upload_Handler,
+			MethodName: "PutChunk",
+			Handler:    _Hub_PutChunk_Handler,
+		},
+		{
+			MethodName: "PutManifest",
+			Handler:    _Hub_PutManifest_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
