@@ -5,24 +5,25 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sync"
 )
 
 type fileChunkStore struct {
 	root     string
-	chunkMap map[string]bool
+	chunkMap *sync.Map
 }
 
 func NewFileChunkStore(root string) *fileChunkStore {
 	return &fileChunkStore{
 		root:     root,
-		chunkMap: make(map[string]bool, 0),
+		chunkMap: &sync.Map{},
 	}
 }
 
 func (idx *fileChunkStore) Stat(checksum []byte) error {
 	checksumStr := fmt.Sprintf("%x", checksum)
 
-	if _, ok := idx.chunkMap[checksumStr]; ok {
+	if _, ok := idx.chunkMap.Load(checksumStr); ok {
 		return nil
 	}
 
@@ -36,7 +37,7 @@ func (idx *fileChunkStore) Stat(checksum []byte) error {
 func (idx *fileChunkStore) Write(checksum []byte, buffer []byte) error {
 	checksumStr := fmt.Sprintf("%x", checksum)
 
-	if _, ok := idx.chunkMap[checksumStr]; !ok {
+	if _, ok := idx.chunkMap.Load(checksumStr); !ok {
 		dir := fmt.Sprintf("%s/%s/%s", idx.root, checksumStr[0:3], checksumStr[3:6])
 		file := fmt.Sprintf("%s/%s", dir, checksumStr)
 
@@ -51,7 +52,7 @@ func (idx *fileChunkStore) Write(checksum []byte, buffer []byte) error {
 			}
 		}
 
-		idx.chunkMap[checksumStr] = true
+		idx.chunkMap.Store(checksumStr, true)
 	}
 
 	return nil
@@ -94,7 +95,7 @@ func (idx *fileChunkStore) Remove(checksum []byte) error {
 	os.Remove(dir2)
 	os.Remove(dir1)
 
-	delete(idx.chunkMap, checksumStr)
+	idx.chunkMap.Delete(checksumStr)
 
 	return nil
 }
