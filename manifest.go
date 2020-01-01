@@ -54,6 +54,10 @@ func NewManifestFromFile(file string) (*manifest, error) {
 		return nil, err
 	}
 
+	return NewManifestFromProto(pbmanifest)
+}
+
+func NewManifestFromProto(pbmanifest *pb.ManifestV1) (*manifest, error) {
 	chunkMaxSize := int64(DefaultChunkSizeMaxBytes)
 	if pbmanifest.ChunkMaxSize != 0 {
 		chunkMaxSize = pbmanifest.ChunkMaxSize

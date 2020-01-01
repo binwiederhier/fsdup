@@ -7,6 +7,7 @@ service Hub {
     rpc Diff (DiffRequest) returns (DiffResponse);
     rpc PutChunk (PutChunkRequest) returns (PutChunkResponse);
     rpc PutManifest (PutManifestRequest) returns (PutManifestResponse);
+    rpc GetManifest (GetManifestRequest) returns (GetManifestResponse);
 }
 
 message DiffRequest {
@@ -33,4 +34,12 @@ message PutManifestRequest {
 }
 
 message PutManifestResponse {
+}
+
+message GetManifestRequest {
+    string Id = 1;
+}
+
+message GetManifestResponse {
+    ManifestV1 Manifest = 1;
 }

@@ -3,6 +3,7 @@ package fsdup
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"google.golang.org/grpc"
@@ -102,4 +103,51 @@ func (s *server) PutManifest(ctx context.Context, req *pb.PutManifestRequest) (*
 	}
 
 	return &pb.PutManifestResponse{}, nil
+}
+
+func (s *server) GetManifest(ctx context.Context, req *pb.GetManifestRequest) (*pb.GetManifestResponse, error) {
+	manifest := &pb.ManifestV1{
+		Slices: make([]*pb.Slice, 0),
+	}
+
+	rows, err := s.db.Query(
+		"SELECT checksum, chunkOffset, chunkLength, kind FROM manifest WHERE manifestId = ? ORDER BY offset ASC",
+		req.Id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var chunkOffset, chunkLength int64
+		var kind int32
+		var checksum sql.NullString
+
+		if err := rows.Scan(checksum, chunkOffset, chunkLength, kind); err != nil {
+			return nil, err
+		}
+
+		if checksum.Valid {
+			checksumBytes, err := hex.DecodeString(checksum.String)
+			if err != nil {
+				return nil, err
+			}
+
+			manifest.Slices = append(manifest.Slices, &pb.Slice{
+				Checksum: checksumBytes,
+				Offset:   chunkOffset,
+				Length:   chunkLength,
+				Kind:     kind,
+			})
+		} else {
+			manifest.Slices = append(manifest.Slices, &pb.Slice{
+				Checksum: nil,
+				Offset:   chunkOffset,
+				Length:   chunkLength,
+				Kind:     kind,
+			})
+		}
+	}
+
+	return &pb.GetManifestResponse{Manifest: manifest}, nil
 }
