@@ -1,13 +1,17 @@
 package fsdup
 
-type metaStoreFile struct {
-
+type fileMetaStore struct {
+	// Nothing
 }
 
-func NewMetaStoreFile() *metaStoreFile {
-	return &metaStoreFile{}
+func NewFileMetaStore() *fileMetaStore {
+	return &fileMetaStore{}
 }
 
-func (s *metaStoreFile) GetManifest(manifestId string) {
+func (s *fileMetaStore) GetManifest(manifestId string) (*manifest, error) {
+	return NewManifestFromFile(manifestId)
+}
 
+func (s* fileMetaStore) PutManifest(manifestId string, manifest *manifest) error {
+	return manifest.WriteToFile(manifestId)
 }

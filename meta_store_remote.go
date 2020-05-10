@@ -7,20 +7,20 @@ import (
 	"sync"
 )
 
-type metaStoreRemote struct {
+type remoteMetaStore struct {
 	serverAddr string
 	client pb.HubClient
 	sync.Mutex
 }
 
-func NewMetaStoreRemote(serverAddr string) *metaStoreRemote {
-	return &metaStoreRemote{
+func NewRemoteMetaStore(serverAddr string) *remoteMetaStore {
+	return &remoteMetaStore{
 		serverAddr: serverAddr,
 		client: nil,
 	}
 }
 
-func (s *metaStoreRemote) GetManifest(manifestId string) (*manifest, error) {
+func (s *remoteMetaStore) GetManifest(manifestId string) (*manifest, error) {
 	if err := s.ensureConnected(); err != nil {
 		return nil, err
 	}
@@ -38,7 +38,20 @@ func (s *metaStoreRemote) GetManifest(manifestId string) (*manifest, error) {
 	return manifest, nil
 }
 
-func (s *metaStoreRemote) ensureConnected() error {
+func (s *remoteMetaStore) PutManifest(manifestId string, manifest *manifest) error {
+	if err := s.ensureConnected(); err != nil {
+		return err
+	}
+
+	_, err := s.client.PutManifest(context.Background(), &pb.PutManifestRequest{Id: manifestId, Manifest: manifest.Proto()})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *remoteMetaStore) ensureConnected() error {
 	s.Lock()
 	defer s.Unlock()
 

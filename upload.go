@@ -10,8 +10,8 @@ import (
 	"os"
 )
 
-func Upload(manifestFile string, inputFile string, serverAddr string) error {
-	manifest, err := NewManifestFromFile(manifestFile)
+func Upload(manifestId string, metaStore MetaStore, inputFile string, serverAddr string) error {
+	manifest, err := metaStore.GetManifest(manifestId)
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func Upload(manifestFile string, inputFile string, serverAddr string) error {
 	client := pb.NewHubClient(conn)
 
 	response, err := client.Diff(context.Background(), &pb.DiffRequest{
-		Id: "1",
+		Id: manifestId,
 		Checksums: checksums,
 	}, )
 
@@ -105,7 +105,7 @@ func Upload(manifestFile string, inputFile string, serverAddr string) error {
 		debugf("uploading %x\n", checksum)
 
 		_, err = client.PutChunk(context.Background(), &pb.PutChunkRequest{
-			Id: "1",
+			Id: manifestId,
 			Checksum: checksum,
 			Data: buffer[:chunkSize],
 		})
@@ -116,7 +116,7 @@ func Upload(manifestFile string, inputFile string, serverAddr string) error {
 	}
 
 	client.PutManifest(context.Background(), &pb.PutManifestRequest{
-		Id: "1",
+		Id: manifestId,
 		Manifest: manifest.Proto(),
 	})
 

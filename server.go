@@ -120,11 +120,20 @@ func (s *server) GetManifest(ctx context.Context, req *pb.GetManifestRequest) (*
 
 	for rows.Next() {
 		var chunkOffset, chunkLength int64
-		var kind int32
+		var kindStr string
 		var checksum sql.NullString
 
-		if err := rows.Scan(checksum, chunkOffset, chunkLength, kind); err != nil {
+		if err := rows.Scan(&checksum, &chunkOffset, &chunkLength, &kindStr); err != nil {
 			return nil, err
+		}
+
+		var kind kind
+		if kindStr == "file" {
+			kind = kindFile
+		} else if kindStr == "sparse" {
+			kind = kindSparse
+		} else {
+			kind = kindGap
 		}
 
 		if checksum.Valid {
@@ -137,14 +146,14 @@ func (s *server) GetManifest(ctx context.Context, req *pb.GetManifestRequest) (*
 				Checksum: checksumBytes,
 				Offset:   chunkOffset,
 				Length:   chunkLength,
-				Kind:     kind,
+				Kind:     int32(kind),
 			})
 		} else {
 			manifest.Slices = append(manifest.Slices, &pb.Slice{
 				Checksum: nil,
 				Offset:   chunkOffset,
 				Length:   chunkLength,
-				Kind:     kind,
+				Kind:     int32(kind),
 			})
 		}
 	}

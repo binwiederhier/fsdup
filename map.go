@@ -26,8 +26,8 @@ type manifestImage struct {
 	buffer     []byte
 }
 
-func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile string) error {
-	manifest, err := NewManifestFromFile(manifestFile)
+func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkStore, targetFile string) error {
+	manifest, err := metaStore.GetManifest(manifestId)
 	if err != nil {
 		return err
 	}

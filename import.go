@@ -7,8 +7,8 @@ import (
 	"os"
 )
 
-func Import(manifestFile string, store ChunkStore, inputFile string) error {
-	manifest, err := NewManifestFromFile(manifestFile)
+func Import(manifestId string, store ChunkStore, metaStore MetaStore, inputFile string) error {
+	manifest, err := metaStore.GetManifest(manifestId)
 	if err != nil {
 		return err
 	}

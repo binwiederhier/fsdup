@@ -14,7 +14,7 @@ type chunkStat struct {
 	kind       kind
 }
 
-func Stat(manifestFiles []string, verbose bool) error {
+func Stat(manifestIds []string, metaStore MetaStore, verbose bool) error {
 	totalImageSize := int64(0)
 	totalFileSize := int64(0)
 	totalGapSize := int64(0)
@@ -31,11 +31,11 @@ func Stat(manifestFiles []string, verbose bool) error {
 	chunkSizes := make([]int64, 0)
 	chunkStats := make([]*chunkStat, 0)
 
-	for i, manifestFile := range manifestFiles {
-		statusf("Reading manifest %d/%d ...", i, len(manifestFiles))
-		debugf("Reading manifest file %s ...\n", manifestFile)
+	for i, manifestId := range manifestIds {
+		statusf("Reading manifest %d/%d ...", i, len(manifestIds))
+		debugf("Reading manifest file %s ...\n", manifestId)
 
-		manifest, err := NewManifestFromFile(manifestFile)
+		manifest, err := metaStore.GetManifest(manifestId)
 		if err != nil {
 			return err
 		}
@@ -116,7 +116,7 @@ func Stat(manifestFiles []string, verbose bool) error {
 		return chunkStats[i].sliceSizes > chunkStats[j].sliceSizes
 	})
 
-	manifestCount := int64(len(manifestFiles))
+	manifestCount := int64(len(manifestIds))
 	chunkCount := int64(len(chunkMap))
 	averageChunkSize := int64(math.Round(float64(totalChunkSize) / float64(chunkCount)))
 

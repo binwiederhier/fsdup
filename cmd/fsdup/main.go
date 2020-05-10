@@ -108,6 +108,7 @@ func indexCommand(args []string) {
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	noWriteFlag := flags.Bool("nowrite", false, "Do not write chunk data, only manifest")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
+	metaFlag := flags.String("meta", "", "Location of the metadata store")
 	offsetFlag := flags.Int64("offset", 0, "Start reading file at given offset")
 	exactFlag := flags.Bool("exact", false, "Ignore the NTFS bitmap, i.e. include unused blocks")
 	noFileFlag := flags.Bool("nofile", false, "Don't do NTFS FILE deduping, just do gaps and unused space")
@@ -140,7 +141,7 @@ func indexCommand(args []string) {
 	writeConcurrency := int64(*writeConcurrencyFlag)
 
 	file := flags.Arg(0)
-	manifest := flags.Arg(1)
+	manifestId := flags.Arg(1)
 
 	var store fsdup.ChunkStore
 	if *noWriteFlag {
@@ -152,8 +153,13 @@ func indexCommand(args []string) {
 		}
 	}
 
+	metaStore, err := createMetaStore(*metaFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
+
 	// Go index!
-	if err := fsdup.Index(file, store, manifest, offset, exact, noFile, minSize, chunkMaxSize, writeConcurrency); err != nil {
+	if err := fsdup.Index(file, store, metaStore, manifestId, offset, exact, noFile, minSize, chunkMaxSize, writeConcurrency); err != nil {
 		exit(2, "Cannot index file: " + string(err.Error()))
 	}
 }
@@ -162,6 +168,7 @@ func mapCommand(args []string) {
 	flags := flag.NewFlagSet("map", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
+	metaFlag := flags.String("meta", "", "Location of the metadata store")
 	cacheFlag := flags.String("cache", "cache", "Location of the chunk cache")
 
 	flags.Parse(args)
@@ -174,7 +181,7 @@ func mapCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
-	manifestFile := flags.Arg(0)
+	manifestId := flags.Arg(0)
 	targetFile := flags.Arg(1)
 
 	store, err := createChunkStore(*storeFlag)
@@ -182,9 +189,14 @@ func mapCommand(args []string) {
 		exit(2, "Invalid syntax: " + string(err.Error()))
 	}
 
+	metaStore, err := createMetaStore(*metaFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
+
 	cache := fsdup.NewFileChunkStore(*cacheFlag)
 
-	if err := fsdup.Map(manifestFile, store, cache, targetFile); err != nil {
+	if err := fsdup.Map(manifestId, store, metaStore, cache, targetFile); err != nil {
 		exit(2, "Cannot map drive file: " + string(err.Error()))
 	}
 }
@@ -193,6 +205,7 @@ func exportCommand(args []string) {
 	flags := flag.NewFlagSet("export", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
+	metaFlag := flags.String("meta", "", "Location of the metadata store")
 
 	flags.Parse(args)
 
@@ -204,15 +217,20 @@ func exportCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
-	manifest := flags.Arg(0)
-	outfile := flags.Arg(1)
+	manifestId := flags.Arg(0)
+	outputFile := flags.Arg(1)
 
 	store, err := createChunkStore(*storeFlag)
 	if err != nil {
 		exit(2, "Invalid syntax: " + string(err.Error()))
 	}
 
-	if err := fsdup.Export(manifest, store, outfile); err != nil {
+	metaStore, err := createMetaStore(*metaFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
+
+	if err := fsdup.Export(manifestId, store, metaStore, outputFile); err != nil {
 		exit(2, "Cannot export file: " + string(err.Error()))
 	}
 }
@@ -221,6 +239,7 @@ func importCommand(args []string) {
 	flags := flag.NewFlagSet("import", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
+	metaFlag := flags.String("meta", "", "Location of the metadata store")
 
 	flags.Parse(args)
 
@@ -232,15 +251,20 @@ func importCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
-	infile := flags.Arg(0)
-	manifest := flags.Arg(1)
+	inputFile := flags.Arg(0)
+	manifestId := flags.Arg(1)
 
 	store, err := createChunkStore(*storeFlag)
 	if err != nil {
 		exit(2, "Invalid syntax: " + string(err.Error()))
 	}
 
-	if err := fsdup.Import(manifest, store, infile); err != nil {
+	metaStore, err := createMetaStore(*metaFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
+
+	if err := fsdup.Import(manifestId, store, metaStore, inputFile); err != nil {
 		exit(2, "Cannot import file: " + string(err.Error()))
 	}
 }
@@ -248,6 +272,7 @@ func importCommand(args []string) {
 func printCommand(args []string) {
 	flags := flag.NewFlagSet("print", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
+	metaFlag := flags.String("meta", "", "Location of the metadata store")
 
 	flags.Parse(args)
 
@@ -259,18 +284,23 @@ func printCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
+	metaStore, err := createMetaStore(*metaFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
+
 	var what string
-	var manifestFile string
+	var manifestId string
 
 	if flags.NArg() == 1 {
 		what = "disk"
-		manifestFile = flags.Arg(0)
+		manifestId = flags.Arg(0)
 	} else {
 		what = flags.Arg(0)
-		manifestFile = flags.Arg(1)
+		manifestId = flags.Arg(1)
 	}
 
-	manifest, err := fsdup.NewManifestFromFile(manifestFile)
+	manifest, err := metaStore.GetManifest(manifestId)
 	if err != nil {
 		exit(2, "Cannot read manifest: " + string(err.Error()))
 	}
@@ -291,6 +321,7 @@ func statCommand(args []string) {
 	flags := flag.NewFlagSet("stat", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	verboseFlag := flags.Bool("verbose", false, "Enable verbose mode")
+	metaFlag := flags.String("meta", "", "Location of the metadata store")
 
 	flags.Parse(args)
 
@@ -302,9 +333,14 @@ func statCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
-	manifests := flags.Args()
+	metaStore, err := createMetaStore(*metaFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
 
-	if err := fsdup.Stat(manifests, *verboseFlag); err != nil {
+	manifestIds := flags.Args()
+
+	if err := fsdup.Stat(manifestIds, metaStore, *verboseFlag); err != nil {
 		exit(2, "Cannot create manifest stats: " + string(err.Error()))
 	}
 }
@@ -339,6 +375,7 @@ func uploadCommand(args []string) {
 	flags := flag.NewFlagSet("upload", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	serverFlag := flags.String("server", ":9991", "Server address")
+	metaFlag := flags.String("meta", "", "Location of the metadata store")
 	flags.Parse(args)
 
 	if flags.NArg() < 2 {
@@ -349,10 +386,15 @@ func uploadCommand(args []string) {
 		fsdup.Debug = *debugFlag
 	}
 
-	infile := flags.Arg(0)
-	manifest := flags.Arg(1)
+	metaStore, err := createMetaStore(*metaFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
 
-	if err := fsdup.Upload(manifest, infile, *serverFlag); err != nil {
+	inputFile := flags.Arg(0)
+	manifestId := flags.Arg(1)
+
+	if err := fsdup.Upload(manifestId, metaStore, inputFile, *serverFlag); err != nil {
 		exit(2, "Cannot upload chunks for file: " + string(err.Error()))
 	}
 }
@@ -435,6 +477,31 @@ func createGcloudStore(uri *url.URL) (fsdup.ChunkStore, error) {
 	}
 
 	return fsdup.NewGcloudStore(project, bucket), nil
+}
+
+func createMetaStore(spec string) (fsdup.MetaStore, error) {
+	if regexp.MustCompile(`^(remote):`).MatchString(spec) {
+		uri, err := url.ParseRequestURI(spec)
+		if err != nil {
+			return nil, err
+		}
+
+		if uri.Scheme == "remote" {
+			return createRemoteMetaStore(uri)
+		}
+
+		return nil, errors.New("meta store type not supported")
+	}
+
+	return createFileMetaStore()
+}
+
+func createFileMetaStore() (fsdup.MetaStore, error) {
+	return fsdup.NewFileMetaStore(), nil
+}
+
+func createRemoteMetaStore(uri *url.URL) (fsdup.MetaStore, error) {
+	return fsdup.NewRemoteMetaStore(uri.Host), nil
 }
 
 func convertToBytes(s string) (int64, error) {
