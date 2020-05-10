@@ -8,7 +8,7 @@ import (
 )
 
 func Import(manifestId string, store ChunkStore, metaStore MetaStore, inputFile string) error {
-	manifest, err := metaStore.GetManifest(manifestId)
+	manifest, err := metaStore.ReadManifest(manifestId)
 	if err != nil {
 		return err
 	}

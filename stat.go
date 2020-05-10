@@ -35,7 +35,7 @@ func Stat(manifestIds []string, metaStore MetaStore, verbose bool) error {
 		statusf("Reading manifest %d/%d ...", i, len(manifestIds))
 		debugf("Reading manifest file %s ...\n", manifestId)
 
-		manifest, err := metaStore.GetManifest(manifestId)
+		manifest, err := metaStore.ReadManifest(manifestId)
 		if err != nil {
 			return err
 		}

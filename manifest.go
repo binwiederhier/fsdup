@@ -364,3 +364,27 @@ func (m *manifest) PrintChunks() error {
 func (m *manifest) resetCaches() {
 	m.offsets = nil
 }
+
+func (k kind) toString() string {
+	if k == kindFile {
+		return "file"
+	} else if k == kindSparse {
+		return "sparse"
+	} else if k == kindGap {
+		return "gap"
+	} else {
+		return "unknown"
+	}
+}
+
+func kindFromString(s string) (kind, error) {
+	if s == "file" {
+		return kindFile, nil
+	} else if s == "sparse" {
+		return kindSparse, nil
+	} else if s == "gap" {
+		return kindGap, nil
+	} else {
+		return kindFile, errors.New("invalid kind string " + s)
+	}
+}

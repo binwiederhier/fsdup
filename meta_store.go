@@ -1,6 +1,6 @@
 package fsdup
 
 type MetaStore interface {
-	GetManifest(manifestId string) (*manifest, error)
-	PutManifest(manifestId string, manifest *manifest) error
+	ReadManifest(manifestId string) (*manifest, error)
+	WriteManifest(manifestId string, manifest *manifest) error
 }

@@ -65,7 +65,7 @@ func Index(inputFile string, store ChunkStore, metaStore MetaStore, manifestId s
 		manifest.PrintDisk()
 	}
 
-	if err := metaStore.PutManifest(manifestId, manifest); err != nil {
+	if err := metaStore.WriteManifest(manifestId, manifest); err != nil {
 		return err
 	}
 

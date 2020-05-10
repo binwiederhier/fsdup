@@ -27,7 +27,7 @@ func ListenAndServe(address string, store ChunkStore) error {
 		return err
 	}
 
-	grpcServer := grpc.NewServer(grpc.MaxRecvMsgSize(128 * 1024 * 1024)) // FIXME
+	grpcServer := grpc.NewServer(grpc.MaxSendMsgSize(128 * 1024 * 1024), grpc.MaxRecvMsgSize(128 * 1024 * 1024)) // FIXME
 	pb.RegisterHubServer(grpcServer, srv)
 
 	return grpcServer.Serve(listener)
@@ -38,9 +38,9 @@ type server struct {
 	db *sql.DB
 }
 
-func (s *server) Diff(ctx context.Context, req *pb.DiffRequest) (*pb.DiffResponse, error) {
+func (s *server) Diff(ctx context.Context, request *pb.DiffRequest) (*pb.DiffResponse, error) {
 	unknownChecksums := make([][]byte, 0)
-	for _, checksum := range req.Checksums {
+	for _, checksum := range request.Checksums {
 		if err := s.store.Stat(checksum); err != nil {
 			unknownChecksums = append(unknownChecksums, checksum)
 		}
@@ -51,16 +51,50 @@ func (s *server) Diff(ctx context.Context, req *pb.DiffRequest) (*pb.DiffRespons
 	}, nil
 }
 
-func (s *server) PutChunk(ctx context.Context, req *pb.PutChunkRequest) (*pb.PutChunkResponse, error) {
-	err := s.store.Write(req.Checksum, req.Data)
+func (s *server) WriteChunk(ctx context.Context, request *pb.WriteChunkRequest) (*pb.WriteChunkResponse, error) {
+	err := s.store.Write(request.Checksum, request.Data)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.PutChunkResponse{}, nil
+	return &pb.WriteChunkResponse{}, nil
 }
 
-func (s *server) PutManifest(ctx context.Context, req *pb.PutManifestRequest) (*pb.PutManifestResponse, error) {
+func (s *server) ReadChunk(ctx context.Context, request *pb.ReadChunkRequest) (*pb.ReadChunkResponse, error) {
+	response := &pb.ReadChunkResponse{
+		Data: make([]byte, request.Length),
+	}
+
+	_, err := s.store.ReadAt(request.Checksum, response.Data, request.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func (s *server) StatChunk(ctx context.Context, request *pb.StatChunkRequest) (*pb.StatChunkResponse, error) {
+	err := s.store.Stat(request.Checksum)
+
+	// FIXME this API is wrong
+	if err != nil {
+		return &pb.StatChunkResponse{Exists: false}, nil
+	} else {
+		return &pb.StatChunkResponse{Exists: true}, nil
+	}
+}
+
+
+func (s *server) RemoveChunk(ctx context.Context, request *pb.RemoveChunkRequest) (*pb.RemoveChunkResponse, error) {
+	err := s.store.Remove(request.Checksum)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.RemoveChunkResponse{}, nil
+}
+
+func (s *server) WriteManifest(ctx context.Context, request *pb.WriteManifestRequest) (*pb.WriteManifestResponse, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -83,13 +117,13 @@ func (s *server) PutManifest(ctx context.Context, req *pb.PutManifestRequest) (*
 	defer stmt.Close() // danger!
 
 	offset := int64(0)
-	for _, slice := range req.Manifest.Slices {
+	for _, slice := range request.Manifest.Slices {
 		if kind(slice.Kind) == kindSparse {
-			_, err = stmt.Exec(req.Id, offset, &sql.NullString{},
-				slice.Offset, slice.Length, slice.Kind)
+			_, err = stmt.Exec(request.Id, offset, &sql.NullString{},
+				slice.Offset, slice.Length, kind(slice.Kind).toString())
 		} else {
-			_, err = stmt.Exec(req.Id, offset, fmt.Sprintf("%x", slice.Checksum),
-				slice.Offset, slice.Length, slice.Kind)
+			_, err = stmt.Exec(request.Id, offset, fmt.Sprintf("%x", slice.Checksum),
+				slice.Offset, slice.Length, kind(slice.Kind).toString())
 		}
 		if err != nil {
 			return nil, err
@@ -102,17 +136,17 @@ func (s *server) PutManifest(ctx context.Context, req *pb.PutManifestRequest) (*
 		return nil, err
 	}
 
-	return &pb.PutManifestResponse{}, nil
+	return &pb.WriteManifestResponse{}, nil
 }
 
-func (s *server) GetManifest(ctx context.Context, req *pb.GetManifestRequest) (*pb.GetManifestResponse, error) {
+func (s *server) ReadManifest(ctx context.Context, request *pb.ReadManifestRequest) (*pb.ReadManifestResponse, error) {
 	manifest := &pb.ManifestV1{
 		Slices: make([]*pb.Slice, 0),
 	}
 
 	rows, err := s.db.Query(
 		"SELECT checksum, chunkOffset, chunkLength, kind FROM manifest WHERE manifestId = ? ORDER BY offset ASC",
-		req.Id)
+		request.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -127,13 +161,9 @@ func (s *server) GetManifest(ctx context.Context, req *pb.GetManifestRequest) (*
 			return nil, err
 		}
 
-		var kind kind
-		if kindStr == "file" {
-			kind = kindFile
-		} else if kindStr == "sparse" {
-			kind = kindSparse
-		} else {
-			kind = kindGap
+		kind, err := kindFromString(kindStr)
+		if err != nil {
+			return nil, err
 		}
 
 		if checksum.Valid {
@@ -158,5 +188,5 @@ func (s *server) GetManifest(ctx context.Context, req *pb.GetManifestRequest) (*
 		}
 	}
 
-	return &pb.GetManifestResponse{Manifest: manifest}, nil
+	return &pb.ReadManifestResponse{Manifest: manifest}, nil
 }

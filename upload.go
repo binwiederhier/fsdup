@@ -11,7 +11,7 @@ import (
 )
 
 func Upload(manifestId string, metaStore MetaStore, inputFile string, serverAddr string) error {
-	manifest, err := metaStore.GetManifest(manifestId)
+	manifest, err := metaStore.ReadManifest(manifestId)
 	if err != nil {
 		return err
 	}
@@ -104,8 +104,7 @@ func Upload(manifestId string, metaStore MetaStore, inputFile string, serverAddr
 
 		debugf("uploading %x\n", checksum)
 
-		_, err = client.PutChunk(context.Background(), &pb.PutChunkRequest{
-			Id: manifestId,
+		_, err = client.WriteChunk(context.Background(), &pb.WriteChunkRequest{
 			Checksum: checksum,
 			Data: buffer[:chunkSize],
 		})
@@ -115,10 +114,14 @@ func Upload(manifestId string, metaStore MetaStore, inputFile string, serverAddr
 		}
 	}
 
-	client.PutManifest(context.Background(), &pb.PutManifestRequest{
+	_, err = client.WriteManifest(context.Background(), &pb.WriteManifestRequest{
 		Id: manifestId,
 		Manifest: manifest.Proto(),
 	})
+
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

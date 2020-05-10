@@ -8,10 +8,10 @@ func NewFileMetaStore() *fileMetaStore {
 	return &fileMetaStore{}
 }
 
-func (s *fileMetaStore) GetManifest(manifestId string) (*manifest, error) {
+func (s *fileMetaStore) ReadManifest(manifestId string) (*manifest, error) {
 	return NewManifestFromFile(manifestId)
 }
 
-func (s* fileMetaStore) PutManifest(manifestId string, manifest *manifest) error {
+func (s* fileMetaStore) WriteManifest(manifestId string, manifest *manifest) error {
 	return manifest.WriteToFile(manifestId)
 }

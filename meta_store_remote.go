@@ -20,12 +20,12 @@ func NewRemoteMetaStore(serverAddr string) *remoteMetaStore {
 	}
 }
 
-func (s *remoteMetaStore) GetManifest(manifestId string) (*manifest, error) {
+func (s *remoteMetaStore) ReadManifest(manifestId string) (*manifest, error) {
 	if err := s.ensureConnected(); err != nil {
 		return nil, err
 	}
 
-	response, err := s.client.GetManifest(context.Background(), &pb.GetManifestRequest{Id: manifestId})
+	response, err := s.client.ReadManifest(context.Background(), &pb.ReadManifestRequest{Id: manifestId})
 	if err != nil {
 		return nil, err
 	}
@@ -38,12 +38,12 @@ func (s *remoteMetaStore) GetManifest(manifestId string) (*manifest, error) {
 	return manifest, nil
 }
 
-func (s *remoteMetaStore) PutManifest(manifestId string, manifest *manifest) error {
+func (s *remoteMetaStore) WriteManifest(manifestId string, manifest *manifest) error {
 	if err := s.ensureConnected(); err != nil {
 		return err
 	}
 
-	_, err := s.client.PutManifest(context.Background(), &pb.PutManifestRequest{Id: manifestId, Manifest: manifest.Proto()})
+	_, err := s.client.WriteManifest(context.Background(), &pb.WriteManifestRequest{Id: manifestId, Manifest: manifest.Proto()})
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func (s *remoteMetaStore) ensureConnected() error {
 	}
 
 	conn, err := grpc.Dial(s.serverAddr, grpc.WithBlock(), grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(128 * 1024 * 1024))) // FIXME
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(128 * 1024 * 1024), grpc.MaxCallRecvMsgSize(128 * 1024 * 1024))) // FIXME
 	if err != nil {
 		return err
 	}

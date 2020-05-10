@@ -27,7 +27,7 @@ type manifestImage struct {
 }
 
 func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkStore, targetFile string) error {
-	manifest, err := metaStore.GetManifest(manifestId)
+	manifest, err := metaStore.ReadManifest(manifestId)
 	if err != nil {
 		return err
 	}

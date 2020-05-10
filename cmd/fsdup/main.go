@@ -300,7 +300,7 @@ func printCommand(args []string) {
 		manifestId = flags.Arg(1)
 	}
 
-	manifest, err := metaStore.GetManifest(manifestId)
+	manifest, err := metaStore.ReadManifest(manifestId)
 	if err != nil {
 		exit(2, "Cannot read manifest: " + string(err.Error()))
 	}
@@ -400,7 +400,7 @@ func uploadCommand(args []string) {
 }
 
 func createChunkStore(spec string) (fsdup.ChunkStore, error) {
-	if regexp.MustCompile(`^(ceph|swift|gcloud):`).MatchString(spec) {
+	if regexp.MustCompile(`^(ceph|swift|gcloud|remote):`).MatchString(spec) {
 		uri, err := url.ParseRequestURI(spec)
 		if err != nil {
 			return nil, err
@@ -411,7 +411,9 @@ func createChunkStore(spec string) (fsdup.ChunkStore, error) {
 		} else if uri.Scheme == "swift" {
 			return createSwiftChunkStore(uri)
 		} else if uri.Scheme == "gcloud" {
-			return createGcloudStore(uri)
+			return createGcloudChunkStore(uri)
+		} else if uri.Scheme == "remote" {
+			return createRemoteChunkStore(uri)
 		}
 
 		return nil, errors.New("store type not supported")
@@ -465,7 +467,7 @@ func createSwiftChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
 	return fsdup.NewSwiftStore(connection, container), nil
 }
 
-func createGcloudStore(uri *url.URL) (fsdup.ChunkStore, error) {
+func createGcloudChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
 	project := uri.Query().Get("project")
 	if project == "" {
 		return nil, errors.New("invalid syntax for gcloud store type, project parameter is required")
@@ -477,6 +479,10 @@ func createGcloudStore(uri *url.URL) (fsdup.ChunkStore, error) {
 	}
 
 	return fsdup.NewGcloudStore(project, bucket), nil
+}
+
+func createRemoteChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
+	return fsdup.NewRemoteChunkStore(uri.Host), nil
 }
 
 func createMetaStore(spec string) (fsdup.MetaStore, error) {
