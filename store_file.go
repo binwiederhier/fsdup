@@ -71,6 +71,7 @@ func (idx *fileChunkStore) ReadAt(checksum []byte, buffer []byte, offset int64) 
 	if err != nil {
 		return 0, err
 	}
+	defer chunk.Close()
 
 	read, err := chunk.ReadAt(buffer, offset)
 	if err != nil {

@@ -290,7 +290,6 @@ func (m *manifest) MergeAtOffset(offset int64, other *manifest) {
 }
 
 func (m *manifest) WriteToFile(file string) error {
-	// Save to file
 	buffer, err := proto.Marshal(m.Proto())
 	if err != nil {
 		return err
