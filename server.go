@@ -2,24 +2,16 @@ package fsdup
 
 import (
 	"context"
-	"database/sql"
-	"encoding/hex"
-	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"google.golang.org/grpc"
 	"heckel.io/fsdup/pb"
 	"net"
 )
 
-func ListenAndServe(address string, store ChunkStore) error {
-	db, err := sql.Open("mysql", "fsdup:fsdup@/fsdup")
-	if err != nil {
-		return err
-	}
-
+func ListenAndServe(address string, store ChunkStore, metaStore MetaStore) error {
 	srv := &server{
 		store: store,
-		db: db,
+		metaStore: metaStore,
 	}
 
 	listener, err := net.Listen("tcp", address)
@@ -35,7 +27,7 @@ func ListenAndServe(address string, store ChunkStore) error {
 
 type server struct {
 	store ChunkStore
-	db *sql.DB
+	metaStore MetaStore
 }
 
 func (s *server) Diff(ctx context.Context, request *pb.DiffRequest) (*pb.DiffResponse, error) {
@@ -95,44 +87,12 @@ func (s *server) RemoveChunk(ctx context.Context, request *pb.RemoveChunkRequest
 }
 
 func (s *server) WriteManifest(ctx context.Context, request *pb.WriteManifestRequest) (*pb.WriteManifestResponse, error) {
-	tx, err := s.db.Begin()
+	manifest, err := NewManifestFromProto(request.Manifest)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`
-		INSERT INTO manifest 
-		SET 
-			manifestId = ?,
-			offset = ?,
-			checksum = ?,
-			chunkOffset = ?,
-			chunkLength = ?,
-			kind = ?
-`)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close() // danger!
-
-	offset := int64(0)
-	for _, slice := range request.Manifest.Slices {
-		if kind(slice.Kind) == kindSparse {
-			_, err = stmt.Exec(request.Id, offset, &sql.NullString{},
-				slice.Offset, slice.Length, kind(slice.Kind).toString())
-		} else {
-			_, err = stmt.Exec(request.Id, offset, fmt.Sprintf("%x", slice.Checksum),
-				slice.Offset, slice.Length, kind(slice.Kind).toString())
-		}
-		if err != nil {
-			return nil, err
-		}
-		offset += slice.Length
-	}
-
-	err = tx.Commit()
-	if err != nil {
+	if err := s.metaStore.WriteManifest(request.Id, manifest); err != nil {
 		return nil, err
 	}
 
@@ -140,53 +100,10 @@ func (s *server) WriteManifest(ctx context.Context, request *pb.WriteManifestReq
 }
 
 func (s *server) ReadManifest(ctx context.Context, request *pb.ReadManifestRequest) (*pb.ReadManifestResponse, error) {
-	manifest := &pb.ManifestV1{
-		Slices: make([]*pb.Slice, 0),
-	}
-
-	rows, err := s.db.Query(
-		"SELECT checksum, chunkOffset, chunkLength, kind FROM manifest WHERE manifestId = ? ORDER BY offset ASC",
-		request.Id)
+	manifest, err := s.metaStore.ReadManifest(request.Id)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var chunkOffset, chunkLength int64
-		var kindStr string
-		var checksum sql.NullString
-
-		if err := rows.Scan(&checksum, &chunkOffset, &chunkLength, &kindStr); err != nil {
-			return nil, err
-		}
-
-		kind, err := kindFromString(kindStr)
-		if err != nil {
-			return nil, err
-		}
-
-		if checksum.Valid {
-			checksumBytes, err := hex.DecodeString(checksum.String)
-			if err != nil {
-				return nil, err
-			}
-
-			manifest.Slices = append(manifest.Slices, &pb.Slice{
-				Checksum: checksumBytes,
-				Offset:   chunkOffset,
-				Length:   chunkLength,
-				Kind:     int32(kind),
-			})
-		} else {
-			manifest.Slices = append(manifest.Slices, &pb.Slice{
-				Checksum: nil,
-				Offset:   chunkOffset,
-				Length:   chunkLength,
-				Kind:     int32(kind),
-			})
-		}
-	}
-
-	return &pb.ReadManifestResponse{Manifest: manifest}, nil
+	return &pb.ReadManifestResponse{Manifest: manifest.Proto()}, nil
 }

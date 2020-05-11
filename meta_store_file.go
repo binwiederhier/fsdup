@@ -5,6 +5,7 @@ type fileMetaStore struct {
 }
 
 func NewFileMetaStore() *fileMetaStore {
+	debugf("Creating file metadata store\n")
 	return &fileMetaStore{}
 }
 

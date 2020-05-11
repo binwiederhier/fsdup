@@ -349,6 +349,7 @@ func serverCommand(args []string) {
 	flags := flag.NewFlagSet("server", flag.ExitOnError)
 	debugFlag := flags.Bool("debug", fsdup.Debug, "Enable debug mode")
 	storeFlag := flags.String("store", "index", "Location of the chunk store")
+	metaFlag := flags.String("meta", "", "Location of the metadata store")
 
 	flags.Parse(args)
 
@@ -365,8 +366,13 @@ func serverCommand(args []string) {
 		exit(2, "Invalid syntax: " + string(err.Error()))
 	}
 
+	metaStore, err := createMetaStore(*metaFlag)
+	if err != nil {
+		exit(2, "Invalid syntax: " + string(err.Error()))
+	}
+
 	listenAddr := flags.Arg(0)
-	if err := fsdup.ListenAndServe(listenAddr, store); err != nil {
+	if err := fsdup.ListenAndServe(listenAddr, store, metaStore); err != nil {
 		exit(1, err.Error())
 	}
 }
@@ -482,11 +488,11 @@ func createGcloudChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
 }
 
 func createRemoteChunkStore(uri *url.URL) (fsdup.ChunkStore, error) {
-	return fsdup.NewRemoteChunkStore(uri.Host), nil
+	return fsdup.NewRemoteChunkStore(uri.Opaque), nil
 }
 
 func createMetaStore(spec string) (fsdup.MetaStore, error) {
-	if regexp.MustCompile(`^(remote):`).MatchString(spec) {
+	if regexp.MustCompile(`^(remote|mysql):`).MatchString(spec) {
 		uri, err := url.ParseRequestURI(spec)
 		if err != nil {
 			return nil, err
@@ -494,6 +500,8 @@ func createMetaStore(spec string) (fsdup.MetaStore, error) {
 
 		if uri.Scheme == "remote" {
 			return createRemoteMetaStore(uri)
+		} else if uri.Scheme == "mysql" {
+			return createMysqlMetaStore(uri)
 		}
 
 		return nil, errors.New("meta store type not supported")
@@ -507,7 +515,11 @@ func createFileMetaStore() (fsdup.MetaStore, error) {
 }
 
 func createRemoteMetaStore(uri *url.URL) (fsdup.MetaStore, error) {
-	return fsdup.NewRemoteMetaStore(uri.Host), nil
+	return fsdup.NewRemoteMetaStore(uri.Opaque), nil
+}
+
+func createMysqlMetaStore(uri *url.URL) (fsdup.MetaStore, error) {
+	return fsdup.NewMysqlMetaStore(uri.Opaque)
 }
 
 func convertToBytes(s string) (int64, error) {

@@ -151,7 +151,7 @@ func (m *manifest) SlicesBetween(from int64, to int64) ([]*chunkSlice, error) {
 
 // Slices returns a map of chunks and its sections on disk.
 // The key is a hex representation of the chunk checksum.
-func (m *manifest) Slices() (map[string][]*chunkSlice, error) {
+func (m *manifest) ChunkSlices() (map[string][]*chunkSlice, error) {
 	// First, we'll sort all slices into a map grouped by chunk checksum. This
 	// produces a map with potentially overlapping slices:
 	//
@@ -344,7 +344,7 @@ func (m *manifest) PrintDisk() {
 }
 
 func (m *manifest) PrintChunks() error {
-	chunkSlices, err := m.Slices()
+	chunkSlices, err := m.ChunkSlices()
 	if err != nil {
 		return err
 	}

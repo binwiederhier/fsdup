@@ -8,9 +8,9 @@ require (
 	github.com/binwiederhier/buse-go v0.0.0-20190620221802-88a95178f4c4
 	github.com/ceph/go-ceph v0.0.0-20181217221554-e32f9f0f2e94
 	github.com/go-sql-driver/mysql v1.4.1
+	github.com/gofrs/uuid v3.3.0+incompatible // indirect
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
 	github.com/golang/protobuf v1.3.2
-	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/ncw/swift v1.0.49
 	go.opencensus.io v0.22.2 // indirect

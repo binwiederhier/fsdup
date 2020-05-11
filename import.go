@@ -27,7 +27,7 @@ func Import(manifestId string, store ChunkStore, metaStore MetaStore, inputFile 
 		return errors.New("size in manifest does not match file size. wrong input file?")
 	}
 
-	chunkSlices, err := manifest.Slices()
+	chunkSlices, err := manifest.ChunkSlices()
 	if err != nil {
 		return err
 	}
