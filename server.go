@@ -78,6 +78,8 @@ func (s *server) StatChunk(ctx context.Context, request *pb.StatChunkRequest) (*
 
 
 func (s *server) RemoveChunk(ctx context.Context, request *pb.RemoveChunkRequest) (*pb.RemoveChunkResponse, error) {
+	debugf("server.RemoveChunk(%x)", request.Checksum)
+
 	err := s.store.Remove(request.Checksum)
 	if err != nil {
 		return nil, err
@@ -87,6 +89,8 @@ func (s *server) RemoveChunk(ctx context.Context, request *pb.RemoveChunkRequest
 }
 
 func (s *server) WriteManifest(ctx context.Context, request *pb.WriteManifestRequest) (*pb.WriteManifestResponse, error) {
+	debugf("server.WriteManifest(%x)", request.Manifest.Id)
+
 	manifest, err := NewManifestFromProto(request.Manifest)
 	if err != nil {
 		return nil, err

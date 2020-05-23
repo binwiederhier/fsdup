@@ -18,6 +18,7 @@ const (
 )
 
 type manifest struct {
+	id           string
 	diskMap      map[int64]*chunkSlice
 	size         int64
 	chunkMaxSize int64
@@ -36,6 +37,7 @@ type chunkSlice struct {
 
 func NewManifest(chunkMaxSize int64) *manifest {
 	return &manifest{
+		id: randString(32),
 		size: 0,
 		chunkMaxSize: chunkMaxSize,
 		diskMap: make(map[int64]*chunkSlice, 0),
@@ -64,8 +66,10 @@ func NewManifestFromProto(pbmanifest *pb.ManifestV1) (*manifest, error) {
 	}
 
 	manifest := NewManifest(chunkMaxSize)
-	offset := int64(0)
+	manifest.id = pbmanifest.Id
+	manifest.chunkMaxSize = chunkMaxSize
 
+	offset := int64(0)
 	for _, slice := range pbmanifest.Slices {
 		manifest.Add(&chunkSlice{
 			checksum:  slice.Checksum,
@@ -323,6 +327,10 @@ func (m *manifest) Proto() *pb.ManifestV1 {
 }
 
 func (m *manifest) PrintDisk() {
+	fmt.Printf("id = %s\n", m.id)
+	fmt.Printf("max chunk size = %d\n", m.chunkMaxSize)
+	fmt.Printf("slices:\n")
+
 	for i, offset := range m.Offsets() {
 		slice := m.diskMap[offset]
 

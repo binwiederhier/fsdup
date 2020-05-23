@@ -14,6 +14,8 @@ type remoteMetaStore struct {
 }
 
 func NewRemoteMetaStore(serverAddr string) *remoteMetaStore {
+	debugf("NewRemoteMetaStore(%s)", serverAddr)
+
 	return &remoteMetaStore{
 		serverAddr: serverAddr,
 		client: nil,
@@ -24,6 +26,8 @@ func (s *remoteMetaStore) ReadManifest(manifestId string) (*manifest, error) {
 	if err := s.ensureConnected(); err != nil {
 		return nil, err
 	}
+
+	debugf("remoteMetaStore.ReadManifest(%s)", manifestId)
 
 	response, err := s.client.ReadManifest(context.Background(), &pb.ReadManifestRequest{Id: manifestId})
 	if err != nil {
@@ -42,6 +46,8 @@ func (s *remoteMetaStore) WriteManifest(manifestId string, manifest *manifest) e
 	if err := s.ensureConnected(); err != nil {
 		return err
 	}
+
+	debugf("remoteMetaStore.WriteManifest(%s)", manifestId)
 
 	_, err := s.client.WriteManifest(context.Background(), &pb.WriteManifestRequest{Id: manifestId, Manifest: manifest.Proto()})
 	if err != nil {
