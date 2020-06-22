@@ -22,7 +22,7 @@ const (
 	probeTypeBufferLength = 1024
 )
 
-func Index(inputFile string, store ChunkStore, manifestFile string, offset int64, exact bool,
+func Index(inputFile string, store ChunkStore, metaStore MetaStore, manifestId string, offset int64, exact bool,
 	noFile bool, minSize int64, chunkMaxSize int64, writeConcurrency int64) error {
 	file, err := os.Open(inputFile)
 	if err != nil {
@@ -65,7 +65,7 @@ func Index(inputFile string, store ChunkStore, manifestFile string, offset int64
 		manifest.PrintDisk()
 	}
 
-	if err := manifest.WriteToFile(manifestFile); err != nil {
+	if err := metaStore.WriteManifest(manifestId, manifest); err != nil {
 		return err
 	}
 

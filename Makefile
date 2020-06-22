@@ -15,7 +15,7 @@ clean:
 
 proto:
 	@echo == Generating protobuf code ==
-	protoc --go_out=. pb/*.proto
+	protoc --go_out=plugins=grpc:. pb/*.proto
 	@echo
 
 cmd: proto

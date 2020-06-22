@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"gitlab.datto.net/pheckel/copy-on-demand/copyondemand"
+	"github.com/datto/copyondemand"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -24,8 +24,8 @@ type manifestImage struct {
 	bufferPool  *sync.Pool
 }
 
-func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile string, fingerprintFileName string) error {
-	manifest, err := NewManifestFromFile(manifestFile)
+func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkStore, targetFile string, fingerprintFileName string) error {
+	manifest, err := metaStore.ReadManifest(manifestId)
 	if err != nil {
 		return err
 	}
@@ -60,10 +60,10 @@ func Map(manifestFile string, store ChunkStore, cache ChunkStore, targetFile str
 
 	image := NewManifestImage(manifest, store, cache, fingerprintFile)
 
-	source := &copyondemand.SyncReaderAt{Reader: image, Size: uint64(manifest.Size())}
-	backingFile := &copyondemand.SyncFile{File: target, Size: uint64(manifest.Size())}
+	source := &copyondemand.SyncSource{Reader: image, Size: uint64(manifest.Size())}
+	fs := &copyondemand.LocalFs{}
 
-	if err := copyondemand.New(deviceName, source, backingFile, true); err != nil {
+	if err := copyondemand.New(deviceName, source, targetFile, true); err != nil {
 		return err
 	}
 

@@ -18,6 +18,7 @@ const (
 )
 
 type manifest struct {
+	id           string
 	diskMap      map[int64]*chunkSlice
 	size         int64
 	chunkMaxSize int64
@@ -36,6 +37,7 @@ type chunkSlice struct {
 
 func NewManifest(chunkMaxSize int64) *manifest {
 	return &manifest{
+		id: randString(32),
 		size: 0,
 		chunkMaxSize: chunkMaxSize,
 		diskMap: make(map[int64]*chunkSlice, 0),
@@ -54,14 +56,20 @@ func NewManifestFromFile(file string) (*manifest, error) {
 		return nil, err
 	}
 
+	return NewManifestFromProto(pbmanifest)
+}
+
+func NewManifestFromProto(pbmanifest *pb.ManifestV1) (*manifest, error) {
 	chunkMaxSize := int64(DefaultChunkSizeMaxBytes)
 	if pbmanifest.ChunkMaxSize != 0 {
 		chunkMaxSize = pbmanifest.ChunkMaxSize
 	}
 
 	manifest := NewManifest(chunkMaxSize)
-	offset := int64(0)
+	manifest.id = pbmanifest.Id
+	manifest.chunkMaxSize = chunkMaxSize
 
+	offset := int64(0)
 	for _, slice := range pbmanifest.Slices {
 		manifest.Add(&chunkSlice{
 			checksum:  slice.Checksum,
@@ -151,7 +159,7 @@ func (m *manifest) SlicesBetween(from int64, to int64) ([]*chunkSlice, error) {
 
 // Slices returns a map of chunks and its sections on disk.
 // The key is a hex representation of the chunk checksum.
-func (m *manifest) Slices() (map[string][]*chunkSlice, error) {
+func (m *manifest) ChunkSlices() (map[string][]*chunkSlice, error) {
 	// First, we'll sort all slices into a map grouped by chunk checksum. This
 	// produces a map with potentially overlapping slices:
 	//
@@ -290,7 +298,19 @@ func (m *manifest) MergeAtOffset(offset int64, other *manifest) {
 }
 
 func (m *manifest) WriteToFile(file string) error {
-	// Transform to protobuf struct
+	buffer, err := proto.Marshal(m.Proto())
+	if err != nil {
+		return err
+	}
+
+	if err := ioutil.WriteFile(file, buffer, 0644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *manifest) Proto() *pb.ManifestV1 {
 	pbmanifest := &pb.ManifestV1{
 		Size: m.Size(),
 		Slices: make([]*pb.Slice, len(m.diskMap)),
@@ -307,20 +327,14 @@ func (m *manifest) WriteToFile(file string) error {
 		}
 	}
 
-	// Save to file
-	buffer, err := proto.Marshal(pbmanifest)
-	if err != nil {
-		return err
-	}
-
-	if err := ioutil.WriteFile(file, buffer, 0644); err != nil {
-		return err
-	}
-
-	return nil
+	return pbmanifest
 }
 
 func (m *manifest) PrintDisk() {
+	fmt.Printf("id = %s\n", m.id)
+	fmt.Printf("max chunk size = %d\n", m.chunkMaxSize)
+	fmt.Printf("slices:\n")
+
 	for i, offset := range m.Offsets() {
 		slice := m.diskMap[offset]
 
@@ -342,7 +356,7 @@ func (m *manifest) PrintDisk() {
 }
 
 func (m *manifest) PrintChunks() error {
-	chunkSlices, err := m.Slices()
+	chunkSlices, err := m.ChunkSlices()
 	if err != nil {
 		return err
 	}
@@ -360,4 +374,28 @@ func (m *manifest) PrintChunks() error {
 
 func (m *manifest) resetCaches() {
 	m.offsets = nil
+}
+
+func (k kind) toString() string {
+	if k == kindFile {
+		return "file"
+	} else if k == kindSparse {
+		return "sparse"
+	} else if k == kindGap {
+		return "gap"
+	} else {
+		return "unknown"
+	}
+}
+
+func kindFromString(s string) (kind, error) {
+	if s == "file" {
+		return kindFile, nil
+	} else if s == "sparse" {
+		return kindSparse, nil
+	} else if s == "gap" {
+		return kindGap, nil
+	} else {
+		return kindFile, errors.New("invalid kind string " + s)
+	}
 }

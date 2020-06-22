@@ -1,0 +1,72 @@
+syntax = "proto3";
+package pb;
+
+import "pb/manifest.proto";
+
+service Hub {
+    rpc Diff (DiffRequest) returns (DiffResponse);
+    rpc WriteChunk (WriteChunkRequest) returns (WriteChunkResponse);
+    rpc ReadChunk (ReadChunkRequest) returns (ReadChunkResponse);
+    rpc StatChunk (StatChunkRequest) returns (StatChunkResponse);
+    rpc RemoveChunk (RemoveChunkRequest) returns (RemoveChunkResponse);
+    rpc WriteManifest (WriteManifestRequest) returns (WriteManifestResponse);
+    rpc ReadManifest (ReadManifestRequest) returns (ReadManifestResponse);
+}
+
+message DiffRequest {
+    string Id = 1;
+    repeated bytes Checksums = 2;
+}
+
+message DiffResponse {
+    repeated bytes UnknownChecksums = 1;
+}
+
+message WriteChunkRequest {
+    bytes Checksum = 1;
+    bytes Data = 2;
+}
+
+message WriteChunkResponse {
+}
+
+message ReadChunkRequest {
+    bytes Checksum = 1;
+    int64 Offset = 2;
+    int64 Length = 3;
+}
+
+message ReadChunkResponse {
+    bytes Data = 1;
+}
+
+message StatChunkRequest {
+    bytes Checksum = 1;
+}
+
+message StatChunkResponse {
+    bool Exists = 1;
+}
+
+message RemoveChunkRequest {
+    bytes Checksum = 1;
+}
+
+message RemoveChunkResponse {
+}
+
+message WriteManifestRequest {
+    string Id = 1;
+    ManifestV1 Manifest = 2;
+}
+
+message WriteManifestResponse {
+}
+
+message ReadManifestRequest {
+    string Id = 1;
+}
+
+message ReadManifestResponse {
+    ManifestV1 Manifest = 1;
+}

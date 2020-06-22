@@ -5,7 +5,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math/rand"
+	"time"
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 func parseIntLE(b []byte, offset int64, length int64) int64 {
 	bpad := make([]byte, 8)
@@ -81,4 +87,14 @@ func convertBytesToHumanReadable(b int64) string {
 	}
 
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func randString(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+	}
+	return string(b)
 }

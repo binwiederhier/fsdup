@@ -5,8 +5,8 @@ import (
 	"os"
 )
 
-func Export(manifestFile string, store ChunkStore, outputFile string) error {
-	manifest, err := NewManifestFromFile(manifestFile)
+func Export(manifestId string, store ChunkStore, metaStore MetaStore, outputFile string) error {
+	manifest, err := metaStore.ReadManifest(manifestId)
 	if err != nil {
 		return err
 	}
