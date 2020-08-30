@@ -30,9 +30,10 @@ func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkSt
 		return err
 	}
 
-	var target *os.File
+	var target copyondemand.File
 	if targetFile != "" {
-		target, err = os.OpenFile(targetFile, os.O_CREATE | os.O_RDWR | os.O_TRUNC, 0600)
+		fs := &copyondemand.LocalFs{}
+		target, err = fs.OpenFile(targetFile, os.O_CREATE | os.O_RDWR | os.O_TRUNC, 0600)
 		if err != nil {
 			return err
 		}
@@ -50,7 +51,6 @@ func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkSt
 		}
 	}
 
-
 	deviceName, err := findNextNbdDevice()
 	if err != nil {
 		return err
@@ -59,13 +59,19 @@ func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkSt
 	debugf("Creating device %s ...\n", deviceName)
 
 	image := NewManifestImage(manifest, store, cache, fingerprintFile)
+	source := &copyondemand.SyncSource{File: image, Size: uint64(manifest.Size())}
+	backing := &copyondemand.SyncFile{File: target, Size: uint64(manifest.Size())}
 
-	source := &copyondemand.SyncSource{Reader: image, Size: uint64(manifest.Size())}
-	fs := &copyondemand.LocalFs{}
+	device, err := copyondemand.New(&copyondemand.DriverConfig{
+		Source: source,
+		Backing: backing,
+	})
 
-	if err := copyondemand.New(deviceName, source, targetFile, true); err != nil {
+	if err != nil {
 		return err
 	}
+
+	device.()
 
 	return nil
 }
@@ -220,6 +226,10 @@ func (d *manifestImage) ReadAt(b []byte, off int64) (n int, err error) {
 
 	debugf("READ offset %d, len %d, took %s\n", off, len(b), time.Now().Sub(timeStart))
 	return len(b), nil
+}
+
+func (d *manifestImage) Fd() uintptr {
+	return 0
 }
 
 func (d *manifestImage) readSlice(checksum []byte, b []byte, off int64) error {

@@ -15,6 +15,7 @@ import (
 )
 
 // TODO [HIGH] "map": Make caching efficient
+// TODO [MED] Add maxSliceSize to fixed size chunker (= input size), allow adding multiple slices to chunk
 // TODO [LOW] Find zeros in gaps, mark as sparse
 // TODO [LOW] Find zeros in FILE runs, mark as sparse
 // TODO [LOW] rename "size" to "length"
