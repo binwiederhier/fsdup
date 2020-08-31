@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/ncw/swift"
+	"github.com/sirupsen/logrus"
 	"heckel.io/fsdup"
+	"io/ioutil"
 	"net/url"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
@@ -172,6 +176,7 @@ func mapCommand(args []string) {
 	metaFlag := flags.String("meta", "", "Location of the metadata store")
 	cacheFlag := flags.String("cache", "cache", "Location of the chunk cache")
 	fingerprintFlag := flags.String("fingerprint", "", "Location of the fingerprint file")
+	deviceFlag := flags.String("device", "", "Name of the NBD device (chosen automatically if not set)")
 
 	flags.Parse(args)
 
@@ -198,9 +203,57 @@ func mapCommand(args []string) {
 
 	cache := fsdup.NewFileChunkStore(*cacheFlag)
 
-	if err := fsdup.Map(manifestId, store, metaStore, cache, targetFile, *fingerprintFlag); err != nil {
+	// Set up copy-on-demand device
+	if *deviceFlag == "" {
+		*deviceFlag, err = findNextNbdDevice()
+		if err != nil {
+			exit(2, "Cannot find NBD device: " + err.Error())
+		}
+
+
+	}
+
+	errorChan := make(chan error)
+	sig := make(chan os.Signal)
+	signal.Notify(sig, os.Interrupt)
+
+	device, err := fsdup.Map(manifestId, store, metaStore, cache, targetFile, *fingerprintFlag, *deviceFlag)
+	if err != nil {
 		exit(2, "Cannot map drive file: " + string(err.Error()))
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func(errorChan chan<- error) {
+		if err := device.Connect(); err != nil {
+			errorChan <- fmt.Errorf("Buse device stopped with error: %s", err)
+		} else {
+			logrus.Info("Buse device stopped gracefully.")
+		}
+	}(errorChan)
+
+	go outputStatus(ctx, device)
+
+	// Block until SIGINT (or error) is received
+	logrus.Info("Device " + *deviceFlag + " is ready to be used. Stop via SIGINT/Ctrl-C.")
+
+	select {
+	case <-sig:
+		break
+	case err := <-errorChan:
+		logrus.Error(err)
+		break
+	}
+
+	// Cancel and disconnect
+	logrus.Info("Stopping device ...")
+	cancel()
+	device.Disconnect()
+
+	logrus.Info("Sleeping 10 sec ...")
+	time.Sleep(10 * time.Second)
+
+	logrus.Info("Done")
 }
 
 func exportCommand(args []string) {
@@ -550,4 +603,23 @@ func convertToBytes(s string) (int64, error) {
 	default:
 		return int64(value), nil
 	}
+}
+
+func findNextNbdDevice() (string, error) {
+	for i := 0; i < 256; i++ {
+		sizeFile := fmt.Sprintf("/sys/class/block/nbd%d/size", i)
+
+		if _, err := os.Stat(sizeFile); err == nil {
+			b, err := ioutil.ReadFile(sizeFile)
+			if err != nil {
+				return "", err
+			}
+
+			if strings.Trim(string(b), "\n") == "0" {
+				return fmt.Sprintf("/dev/nbd%d", i), nil
+			}
+		}
+	}
+
+	return "", errors.New("cannot find free nbd device, driver not loaded?")
 }

@@ -25,7 +25,7 @@ cmd: proto
 		-o build/fsdup \
 		-ldflags \
 		"-X main.buildversion=${VERSION} -X main.buildcommit=$(shell git rev-parse --short HEAD) -X main.builddate=$(shell date +%s)" \
-		cmd/fsdup/main.go
+		cmd/fsdup/*.go
 	@echo
 	@echo "--> fsdup CLI built at build/fsdup"
 	@echo

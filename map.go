@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/datto/copyondemand"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -24,10 +23,12 @@ type manifestImage struct {
 	bufferPool  *sync.Pool
 }
 
-func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkStore, targetFile string, fingerprintFileName string) error {
+func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkStore, targetFile string,
+	fingerprintFileName string, nbdDeviceName string) (*copyondemand.FileBackedDevice, error) {
+
 	manifest, err := metaStore.ReadManifest(manifestId)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var target copyondemand.File
@@ -35,11 +36,11 @@ func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkSt
 		fs := &copyondemand.LocalFs{}
 		target, err = fs.OpenFile(targetFile, os.O_CREATE | os.O_RDWR | os.O_TRUNC, 0600)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if err := target.Truncate(manifest.Size()); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -47,33 +48,27 @@ func Map(manifestId string, store ChunkStore, metaStore MetaStore, cache ChunkSt
 	if fingerprintFileName != "" {
 		fingerprintFile, err = os.OpenFile(fingerprintFileName, os.O_RDONLY, 0600)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	deviceName, err := findNextNbdDevice()
-	if err != nil {
-		return err
-	}
-
-	debugf("Creating device %s ...\n", deviceName)
+	debugf("Creating device %s ...\n", nbdDeviceName)
 
 	image := NewManifestImage(manifest, store, cache, fingerprintFile)
 	source := &copyondemand.SyncSource{File: image, Size: uint64(manifest.Size())}
 	backing := &copyondemand.SyncFile{File: target, Size: uint64(manifest.Size())}
-
 	device, err := copyondemand.New(&copyondemand.DriverConfig{
 		Source: source,
 		Backing: backing,
+		NbdFileName: nbdDeviceName,
+		EnableBackgroundSync: true,
 	})
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	device.()
-
-	return nil
+	return device, nil
 }
 
 type chunkRequest struct {
@@ -244,23 +239,4 @@ func (d *manifestImage) readSlice(checksum []byte, b []byte, off int64) error {
 	debugf("Reading chunk %x, offset %d, length %d, took %s",
 		checksum, off, len(b), time.Now().Sub(timeReadStart))
 	return nil
-}
-
-func findNextNbdDevice() (string, error) {
-	for i := 0; i < 256; i++ {
-		sizeFile := fmt.Sprintf("/sys/class/block/nbd%d/size", i)
-
-		if _, err := os.Stat(sizeFile); err == nil {
-			b, err := ioutil.ReadFile(sizeFile)
-			if err != nil {
-				return "", err
-			}
-
-			if strings.Trim(string(b), "\n") == "0" {
-				return fmt.Sprintf("/dev/nbd%d", i), nil
-			}
-		}
-	}
-
-	return "", errors.New("cannot find free nbd device, driver not loaded?")
 }
